@@ -1,0 +1,24 @@
+User stats AFTER awarding points:
+{
+  "display_name": "ovais",
+  "contributor_score": 600,
+  "contributor_rank": "silver",
+  "total_docs_contributed": 3,
+  "contribution_streak": 0
+}
+
+Leaderboard:
+[
+  {
+    "product_user_id": "73643380-c672-4b22-b1ad-55802e491ed1",
+    "display_name": "ovais",
+    "product_id": "6c97626f-eaa5-4e52-8e6d-041f11e4ec9f",
+    "product_name": "GST Assistant",
+    "contributor_score": 600,
+    "contributor_rank": "silver",
+    "total_docs_contributed": 3,
+    "total_chunks_contributed": 0,
+    "contribution_streak": 0,
+    "product_rank": 1
+  }
+]

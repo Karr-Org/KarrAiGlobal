@@ -1,0 +1,392 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-primary: 12 74 110;
+  --color-secondary: 13 148 136;
+  --color-accent: 245 158 11;
+}
+
+/* Base styles */
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+/* Component styles */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-secondary-600 text-white hover:bg-secondary-700 focus:ring-secondary-500;
+  }
+
+  .btn-outline {
+    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-primary-500;
+  }
+
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 focus:ring-gray-500;
+  }
+
+  .input {
+    @apply block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:bg-gray-100 disabled:cursor-not-allowed;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+
+  .card-header {
+    @apply px-6 py-4 border-b border-gray-100;
+  }
+
+  .card-body {
+    @apply px-6 py-4;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+
+  .badge-error {
+    @apply badge bg-red-100 text-red-800;
+  }
+
+  .badge-info {
+    @apply badge bg-blue-100 text-blue-800;
+  }
+}
+
+/* Custom scrollbar */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(209 213 219) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(209 213 219);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(156 163 175);
+  }
+}
+
+/* Chat message animations */
+.chat-message {
+  @apply animate-slide-up;
+}
+
+/* Loading dots animation */
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+
+  0%,
+  20% {
+    content: '';
+  }
+
+  40% {
+    content: '.';
+  }
+
+  60% {
+    content: '..';
+  }
+
+  80%,
+  100% {
+    content: '...';
+  }
+}
+
+/* ============ PREMIUM MARKDOWN RENDERER STYLES ============ */
+
+/* Citation badges */
+.premium-markdown .citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  margin: 0 0.125rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: white;
+  background-color: var(--brand-color, #DA7B4D);
+  border-radius: 9999px;
+  vertical-align: super;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.premium-markdown .citation:hover {
+  transform: scale(1.1);
+}
+
+/* KaTeX math styling */
+.premium-markdown .katex-display {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: linear-gradient(to right, #faf9f7, #f5f3ef);
+  border-radius: 0.75rem;
+  overflow-x: auto;
+}
+
+.premium-markdown .katex {
+  font-size: 1.1em;
+}
+
+/* Mermaid diagram styling */
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Shiki code styling overrides */
+.shiki-container pre {
+  margin: 0 !important;
+  padding: 1rem !important;
+}
+
+.shiki-container code {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
+}
+
+.shiki-container .line {
+  display: block;
+  min-height: 1.5rem;
+}
+
+/* Table styling for markdown */
+.premium-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.premium-markdown th {
+  text-align: left;
+  font-weight: 600;
+}
+
+/* Task list styling */
+.premium-markdown input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+/* ============ PREMIUM ANIMATIONS ============ */
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite linear;
+}
+
+/* Pulse glow effect */
+@keyframes pulseGlow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(218, 123, 77, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 20px 5px rgba(218, 123, 77, 0.2);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* Slide in from left */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+/* Bounce in effect */
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+
+  70% {
+    transform: scale(0.9);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+/* Typing cursor blink */
+@keyframes blink {
+
+  0%,
+  50% {
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Gradient text shimmer */
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  background: linear-gradient(90deg, #DA7B4D, #d4a373, #DA7B4D);
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Scale up on hover */
+.hover-scale {
+  transition: transform 0.2s ease;
+}
+
+.hover-scale:hover {
+  transform: scale(1.02);
+}
+
+/* Lift shadow on hover */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(0, 0, 0, 0.2);
+}
+
+/* Code block line highlight */
+.shiki-container .line.highlighted {
+  background: rgba(218, 123, 77, 0.1);
+  border-left: 3px solid #DA7B4D;
+  margin-left: -3px;
+  padding-left: 12px;
+}
+
+/* Code block line numbers */
+.shiki-container .line::before {
+  content: attr(data-line);
+  display: inline-block;
+  width: 2rem;
+  margin-right: 1rem;
+  text-align: right;
+  color: #6e7681;
+  opacity: 0.5;
+}

@@ -1,0 +1,39 @@
+=== VERIFICATION RESULTS ===
+
+1. Knowledge Suggestions:
+[
+  {
+    "id": "ea3ef58f-d702-4b2f-b400-d1664154a41e",
+    "topic": "Exemptions.pdf",
+    "source_user_id": "73643380-c672-4b22-b1ad-55802e491ed1",
+    "similarity_to_kb": 0,
+    "status": "rejected"
+  },
+  {
+    "id": "70fb8c37-0731-47af-9bb0-272fd8ae7ebd",
+    "topic": "Eway Bill.pdf",
+    "source_user_id": "73643380-c672-4b22-b1ad-55802e491ed1",
+    "similarity_to_kb": 0.694032276464516,
+    "status": "approved"
+  },
+  {
+    "id": "30e342dd-d87e-4c25-83b1-83c354d87e91",
+    "topic": "Exemptions.pdf",
+    "source_user_id": "73643380-c672-4b22-b1ad-55802e491ed1",
+    "similarity_to_kb": 0,
+    "status": "approved"
+  },
+  {
+    "id": "84ca7b76-ca2a-48ea-bb61-d93caac8e5c9",
+    "topic": "Input tax credit.pdf",
+    "source_user_id": "73643380-c672-4b22-b1ad-55802e491ed1",
+    "similarity_to_kb": 0.645646950296509,
+    "status": "approved"
+  }
+]
+
+2. Leaderboard:
+[]
+
+3. Users with scores:
+[]
