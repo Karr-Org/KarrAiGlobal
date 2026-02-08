@@ -100,12 +100,18 @@ export default function ProductSocialAccounts({ productId, productName }: Produc
     const [loading, setLoading] = useState(true);
     const [showConnectModal, setShowConnectModal] = useState(false);
     const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
+    const [connectError, setConnectError] = useState<string | null>(null);
 
     // Get current user
     useEffect(() => {
         const getUser = async () => {
             const { data: { user } } = await supabase.auth.getUser();
-            if (user) setUserId(user.id);
+            if (user) {
+                setUserId(user.id);
+                console.log('[Social] Authenticated user:', user.id);
+            } else {
+                console.warn('[Social] No authenticated user found');
+            }
         };
         getUser();
     }, []);
@@ -120,7 +126,6 @@ export default function ProductSocialAccounts({ productId, productName }: Produc
 
     const fetchAccounts = async () => {
         try {
-            // Use the unified API with productId filter
             const response = await fetch(`/api/social/accounts?productId=${productId}`, {
                 headers: { 'x-user-id': userId || '' }
             });
@@ -152,11 +157,17 @@ export default function ProductSocialAccounts({ productId, productName }: Produc
     };
 
     const handleConnect = async (platformId: string) => {
-        if (!userId) return;
+        setConnectError(null);
+
+        if (!userId) {
+            setConnectError('Not authenticated. Please log in first.');
+            console.error('[Social Connect] No userId — user not authenticated');
+            return;
+        }
+
         setConnectingPlatform(platformId);
 
         try {
-            // Use the unified API — productId will be encoded in the OAuth state
             const response = await fetch('/api/social/accounts', {
                 method: 'POST',
                 headers: {
@@ -167,15 +178,26 @@ export default function ProductSocialAccounts({ productId, productName }: Produc
             });
 
             const data = await response.json();
+
+            if (!response.ok) {
+                setConnectError(data.error || `Server error: ${response.status}`);
+                console.error('[Social Connect] API error:', data);
+                setConnectingPlatform(null);
+                return;
+            }
+
             if (data.authUrl) {
-                // Redirect to OAuth flow — callback will redirect back to marketing page
+                // Redirect to OAuth flow
                 window.location.href = data.authUrl;
             } else {
-                console.error('No auth URL returned:', data);
+                setConnectError('No auth URL returned from server. Check platform configuration.');
+                console.error('[Social Connect] No auth URL returned:', data);
                 setConnectingPlatform(null);
             }
         } catch (error) {
-            console.error('Error connecting:', error);
+            const msg = error instanceof Error ? error.message : 'Unknown error';
+            setConnectError(`Connection failed: ${msg}`);
+            console.error('[Social Connect] Error:', error);
             setConnectingPlatform(null);
         }
     };
@@ -434,6 +456,16 @@ export default function ProductSocialAccounts({ productId, productName }: Produc
                                 );
                             })}
                         </div>
+
+                        {/* Error Display */}
+                        {connectError && (
+                            <div className="mt-4 p-4 bg-red-50 rounded-xl border border-red-200">
+                                <div className="flex gap-3">
+                                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                                    <p className="text-sm text-red-700">{connectError}</p>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-100">
                             <div className="flex gap-3">
