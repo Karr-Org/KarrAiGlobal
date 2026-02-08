@@ -53,7 +53,7 @@ def compound_interest(principal, rate, time, n=12):
     return round(amount, 2)
 
 result = compound_interest(1000, 0.05, 5)
-print(f"Final amount: ${result}")
+print(f"Final amount: ${'$'}{result}")
 \`\`\`
 
 ### TypeScript
@@ -169,7 +169,7 @@ def calculate_hypotenuse(a: float, b: float) -> float:
 
 # Example usage
 result = calculate_hypotenuse(3, 4)
-print(f"Hypotenuse: {result}")  # Output: 5.0
+print(f"Hypotenuse: ${'{' + 'result' + '}'}")  # Output: 5.0
 \`\`\`
 
 This demonstrates how code, math, and formatting work together seamlessly!
