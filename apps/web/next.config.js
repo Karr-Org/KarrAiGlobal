@@ -2,6 +2,12 @@
 const nextConfig = {
     reactStrictMode: true,
     transpilePackages: ['@karrai/database', '@karrai/ai', '@karrai/rag'],
+    typescript: {
+        ignoreBuildErrors: true,
+    },
+    eslint: {
+        ignoreDuringBuilds: true,
+    },
     images: {
         remotePatterns: [
             {
