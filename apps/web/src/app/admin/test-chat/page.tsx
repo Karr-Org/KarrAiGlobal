@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Send, Loader2, AlertCircle, CheckCircle, BookOpen, Sparkles } from 'lucide-react';
@@ -14,6 +14,14 @@ interface Message {
 }
 
 export default function TestChatPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" /></div>}>
+            <TestChatContent />
+        </Suspense>
+    );
+}
+
+function TestChatContent() {
     const searchParams = useSearchParams();
     const productId = searchParams.get('productId');
     const productName = searchParams.get('name') || 'Product';

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -33,6 +33,14 @@ interface Product {
 }
 
 export default function UploadDocumentPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" /></div>}>
+            <UploadDocumentContent />
+        </Suspense>
+    );
+}
+
+function UploadDocumentContent() {
     const [mode, setMode] = useState<'file' | 'text'>('file');
     const [files, setFiles] = useState<UploadedFile[]>([]);
     const [dragActive, setDragActive] = useState(false);

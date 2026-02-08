@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { PanelLeftClose } from 'lucide-react';
 import PostComposer from '@/components/social/PostComposer';
@@ -711,6 +711,14 @@ function AnalyticsDashboard({ posts, analytics }: { posts: SocialPost[]; analyti
 // ============================================
 
 export default function SocialPulsePage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" /></div>}>
+            <SocialPulseContent />
+        </Suspense>
+    );
+}
+
+function SocialPulseContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const pathname = usePathname();

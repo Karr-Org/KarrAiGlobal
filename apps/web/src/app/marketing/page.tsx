@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
     Rocket,
@@ -32,6 +32,14 @@ import ProductSocialAccounts from '@/components/marketing/ProductSocialAccounts'
 type MarketingTab = 'dashboard' | 'accounts' | 'profile' | 'ideas' | 'blog' | 'social' | 'calendar';
 
 export default function MarketingPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-purple-500 rounded-full animate-spin" /></div>}>
+            <MarketingPageContent />
+        </Suspense>
+    );
+}
+
+function MarketingPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const supabase = createBrowserClient(

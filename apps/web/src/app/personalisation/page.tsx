@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -69,6 +69,14 @@ interface Product {
 // ============================================
 
 export default function PersonalisationPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-amber-500 rounded-full animate-spin" /></div>}>
+            <PersonalisationContent />
+        </Suspense>
+    );
+}
+
+function PersonalisationContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const supabase = createClient();

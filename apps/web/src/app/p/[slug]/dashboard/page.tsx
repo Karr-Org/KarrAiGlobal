@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -110,6 +110,14 @@ interface ChatSession {
 }
 
 export default function ProductDashboard({ params }: { params: { slug: string } }) {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" /></div>}>
+            <ProductDashboardContent params={params} />
+        </Suspense>
+    );
+}
+
+function ProductDashboardContent({ params }: { params: { slug: string } }) {
     const router = useRouter();
     const supabase = createClient();
 
