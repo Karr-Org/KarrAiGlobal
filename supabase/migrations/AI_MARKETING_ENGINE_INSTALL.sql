@@ -1,0 +1,19 @@
+-- ===========================================
+-- AI Marketing Engine - Quick Install Script
+-- ===========================================
+-- Run this in Supabase SQL Editor to install the marketing tables
+-- Full migration: 023_ai_marketing_engine.sql
+-- Instructions:
+-- 1. Go to your Supabase Dashboard
+-- 2. Click on "SQL Editor" in the left sidebar
+-- 3. Paste this entire script
+-- 4. Click "Run" to execute
+-- This creates all tables needed for:
+-- - Marketing Profiles
+-- - Content Ideas
+-- - Blog Posts with SEO/AEO
+-- - Social Posts
+-- - Content Calendar
+-- - LLM Citations tracking
+-- - Content Learnings
+\ i 023_ai_marketing_engine.sql
