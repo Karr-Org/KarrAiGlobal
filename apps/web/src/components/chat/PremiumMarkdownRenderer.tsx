@@ -926,11 +926,12 @@ export function PremiumMarkdownRenderer({
 
 interface AIMessageProps {
     content: string;
-    sources?: { title: string; excerpt: string; type: string }[];
+    sources?: { title: string; excerpt: string; type: string; icon?: string }[];
     brandColor?: string;
     showSources: boolean;
     onToggleSources: () => void;
     confidence?: number;
+    kbWasEmpty?: boolean; // True if KB had no results and web search was used
 }
 
 export function AIMessage({
@@ -939,7 +940,8 @@ export function AIMessage({
     brandColor = '#DA7B4D',
     showSources,
     onToggleSources,
-    confidence
+    confidence,
+    kbWasEmpty
 }: AIMessageProps) {
     return (
         <motion.div
@@ -947,6 +949,14 @@ export function AIMessage({
             animate={{ opacity: 1, y: 0 }}
             className="bg-white border border-sand-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
         >
+            {/* KB Empty Notice */}
+            {kbWasEmpty && (
+                <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-700">
+                    <span className="text-amber-500">⚠️</span>
+                    <span>Couldn&apos;t find in knowledge base. Showing results from <strong>trusted websites</strong>.</span>
+                </div>
+            )}
+
             {/* Main Content */}
             <div className="px-5 py-4">
                 <PremiumMarkdownRenderer content={content} brandColor={brandColor} />
@@ -1005,9 +1015,13 @@ export function AIMessage({
                                             </span>
                                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${src.type === 'private'
                                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                                : 'bg-violet-50 text-violet-700 border border-violet-100'
+                                                : src.type === 'web'
+                                                    ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                                                    : 'bg-violet-50 text-violet-700 border border-violet-100'
                                                 }`}>
-                                                {src.type === 'private' ? '📁 Your Document' : '📚 Knowledge Base'}
+                                                {src.type === 'private' ? '📁 Your Document'
+                                                    : src.type === 'web' ? '🌐 Web Source'
+                                                        : '📚 Knowledge Base'}
                                             </span>
                                             <span className="font-medium text-sand-800 text-sm truncate">
                                                 {src.title}

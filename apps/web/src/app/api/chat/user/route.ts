@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerBackgroundLearning } from '@/lib/cognitive/learning-orchestrator';
 import { buildAdaptiveConfig, detectEmotionalState } from '@/lib/cognitive/adaptive-intelligence';
+import { liveWebSearch } from '@/lib/okse/live-web-search';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,26 +14,51 @@ import {
     rewriteQuery,
     buildMultiTurnMessages,
     summarizeConversation,
-    WORLD_CLASS_SYSTEM_PROMPT,
+    STRICT_MODE_PROMPT,
+    EXTENDED_MODE_PROMPT,
     ConversationMessage
 } from '@/lib/conversation-intelligence';
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
-const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent';
+// Using gemini-embedding-001 with outputDimensionality=768 to match stored embeddings
+const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
 
 async function getEmbedding(text: string): Promise<number[]> {
-    const response = await fetch(`${GEMINI_EMBED_URL}?key=${GOOGLE_AI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: 'models/text-embedding-004',
-            content: { parts: [{ text }] },
-        }),
-    });
+    try {
+        console.log('[Embedding] Calling Gemini embedding API (768d)...');
+        const response = await fetch(`${GEMINI_EMBED_URL}?key=${GOOGLE_AI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'models/gemini-embedding-001',
+                content: { parts: [{ text }] },
+                outputDimensionality: 768  // Match stored embedding dimensions
+            }),
+        });
 
-    const data = await response.json();
-    return data.embedding?.values || [];
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[Embedding] API error:', response.status, errorText);
+            return [];
+        }
+
+        const data = await response.json();
+        const values = data.embedding?.values || [];
+
+        // 🛡️ SECURITY CHECK: strictly enforce 768 dimensions
+        if (values.length !== 768) {
+            console.error(`[CRITICAL] Query embedding dimension mismatch! Expected 768, got ${values.length}`);
+            throw new Error(`Query embedding failed: Returned ${values.length} dimensions, expected 768.`);
+        }
+
+        console.log('[Embedding] Success, got', values.length, 'dimensions');
+        return values;
+    } catch (error) {
+        console.error('[Embedding] Failed:', error);
+        return [];
+    }
 }
+
 
 async function generateContent(prompt: string): Promise<string> {
     try {
@@ -134,7 +160,7 @@ interface ContextChunk {
     content: string;
     similarity: number;
     title: string;
-    type: 'global' | 'user' | 'context' | 'entity';
+    type: 'global' | 'user' | 'context' | 'entity' | 'web';
 }
 
 export async function POST(request: NextRequest) {
@@ -146,6 +172,8 @@ export async function POST(request: NextRequest) {
         const sessionId = formData.get('sessionId') as string;
         const contextFile = formData.get('contextFile') as File | null;
         const conversationHistoryRaw = formData.get('conversationHistory') as string;
+        const enableWebSearch = formData.get('enableWebSearch') === 'true';
+        const enableExtendedKnowledge = formData.get('enableExtendedKnowledge') === 'true';
 
         // Parse conversation history for context-aware responses
         let conversationHistory: { role: string; content: string }[] = [];
@@ -192,6 +220,13 @@ export async function POST(request: NextRequest) {
         // ============================================
         // 1. GLOBAL PRODUCT KNOWLEDGE
         // ============================================
+        console.log('[UserChat] Calling hybrid_search with:', {
+            embedding_length: queryEmbedding.length,
+            query: query.substring(0, 50),
+            p_product_id: productId,
+            p_user_id: productUser.user_id,
+        });
+
         const { data: globalChunks, error: globalError } = await supabase.rpc('hybrid_search', {
             query_embedding: queryEmbedding,
             query_text: query,
@@ -200,19 +235,28 @@ export async function POST(request: NextRequest) {
             match_count: 5,
         });
 
+        console.log('[UserChat] hybrid_search result:', {
+            chunks_found: globalChunks?.length || 0,
+            error: globalError,
+            first_chunk_preview: globalChunks?.[0]?.content?.substring(0, 100),
+        });
+
         if (globalError) {
-            console.error('hybrid_search error:', globalError);
+            console.error('[UserChat] hybrid_search error:', globalError);
         }
 
         if (globalChunks?.length > 0) {
+            console.log(`[UserChat] Found ${globalChunks.length} internal KB chunks`);
             globalChunks.forEach((chunk: any) => {
                 allChunks.push({
                     content: chunk.content,
-                    similarity: chunk.similarity || 0.5,
+                    similarity: chunk.score || 0.5,  // hybrid_search returns 'score', not 'similarity'
                     title: chunk.document_title || 'Knowledge Base',
                     type: 'global',
                 });
             });
+        } else {
+            console.log('[UserChat] No internal KB chunks found - KB may be empty or query not matching');
         }
 
         // ============================================
@@ -233,6 +277,44 @@ export async function POST(request: NextRequest) {
                     type: 'user',
                 });
             });
+        }
+
+        // ============================================
+        // 2.5. LIVE WEB SEARCH (OKSE Integration)
+        // Search trusted domains for relevant content
+        // Triggers when: user explicitly enables it OR when internal KB has NO results
+        // ============================================
+        let webSearchUsed = false;
+        let kbWasEmpty = allChunks.length === 0; // Track if KB had no results
+
+        try {
+            // Only auto-trigger if KB is truly empty (0 results) - not just sparse
+            const shouldSearchWeb = enableWebSearch || allChunks.length === 0;
+
+            if (shouldSearchWeb) {
+                console.log(`[UserChat] Triggering live web search... (explicit: ${enableWebSearch}, KB empty: ${allChunks.length === 0})`);
+                const webResults = await liveWebSearch(query, productId, {
+                    fetchContent: true,
+                    maxResults: enableWebSearch ? 5 : 3 // More results if explicitly requested
+                });
+
+                if (webResults.results.length > 0) {
+                    webSearchUsed = true;
+                    console.log(`[UserChat] Web search found ${webResults.results.length} results from trusted domains`);
+
+                    webResults.results.forEach((result) => {
+                        allChunks.push({
+                            content: result.content || result.snippet,
+                            similarity: 0.75, // Good relevance from search engine
+                            title: `${result.title} [${result.domain}]`,
+                            type: 'web',
+                        });
+                    });
+                }
+            }
+        } catch (webError) {
+            console.error('[UserChat] Live web search failed:', webError);
+            // Continue without web results
         }
 
         // ============================================
@@ -406,8 +488,13 @@ export async function POST(request: NextRequest) {
             // Continue without personalization
         }
 
-        // Step 3: Use the world-class system prompt with adaptive additions
-        let systemPrompt = taskSystemPrompt || WORLD_CLASS_SYSTEM_PROMPT;
+        // Step 3: Select system prompt based on Extended Knowledge mode
+        // STRICT_MODE_PROMPT: Only answers from KB (default)
+        // EXTENDED_MODE_PROMPT: Allows Gemini general knowledge
+        const basePrompt = enableExtendedKnowledge ? EXTENDED_MODE_PROMPT : STRICT_MODE_PROMPT;
+        let systemPrompt = taskSystemPrompt || basePrompt;
+
+        console.log('[Mode]', enableExtendedKnowledge ? 'EXTENDED (KB + General)' : 'STRICT (KB Only)');
 
         // Inject adaptive personalization into the system prompt
         if (adaptivePrompt) {
@@ -419,8 +506,15 @@ export async function POST(request: NextRequest) {
             conversationHistory as ConversationMessage[],
             effectiveQuery,
             systemPrompt,
-            context || 'Answer based on your general knowledge.'
+            context || ''  // Empty context triggers "no information found" in strict mode
         );
+
+        // CRITICAL DEBUG: Log what's being sent to AI
+        console.log('[CRITICAL] Context being sent to AI:');
+        console.log('  - Context length:', context.length, 'chars');
+        console.log('  - Context preview:', context.substring(0, 500));
+        console.log('  - Top chunks count:', topChunks.length);
+        console.log('  - Mode:', enableExtendedKnowledge ? 'EXTENDED' : 'STRICT');
 
         // Step 5: Generate response using multi-turn format
         const response = await generateContentMultiTurn(multiTurnMessages);
@@ -524,14 +618,16 @@ If nothing worth remembering, return: {"should_remember": false}`;
                 confidence: topChunks.length > 0
                     ? Math.min(0.95, 0.5 + (topChunks.length * 0.08) + (topChunks[0]?.similarity || 0) * 0.3)
                     : 0.2,
-                webSupplementUsed: false,
+                kbWasEmpty,  // True if KB had 0 results and web search was used as fallback
+                webSupplementUsed: webSearchUsed,
                 evaluatedSources: topChunks.length,
                 sourceTypes: [...new Set(topChunks.map(c => c.type))],
             },
             sources: topChunks.slice(0, 5).map(c => ({
                 title: c.title,
                 excerpt: c.content.substring(0, 150) + '...',
-                type: c.type === 'user' ? 'private' : 'global',
+                type: c.type === 'user' ? 'private' : c.type === 'web' ? 'web' : 'global',
+                icon: c.type === 'web' ? '🌐' : c.type === 'user' ? '📁' : '📚',
             })),
             memorySuggestions,
         });

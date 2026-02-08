@@ -16,7 +16,8 @@ export default function CreateProductPage() {
         knowledgeBaseOption: 'new', // 'new' | 'existing' - kept for backward compat logic if needed
         existingKnowledgeBaseId: '', // kept for compatibility
         selectedKbIds: [] as string[],
-        primaryColor: '#1a365d'
+        primaryColor: '#1a365d',
+        webSources: [] as { domain: string; displayName: string; authorityScore: number }[]
     });
 
     useEffect(() => {
@@ -151,6 +152,102 @@ export default function CreateProductPage() {
                     </div>
                     <div className="mt-2 text-xs text-blue-600 text-right">
                         {formData.selectedKbIds.length} KB{formData.selectedKbIds.length !== 1 && 's'} selected
+                    </div>
+                </div>
+
+                {/* Web Sources Config */}
+                <div className="bg-green-50 p-6 rounded-lg border border-green-100">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-green-900">🌐 Web Sources (OKSE)</h3>
+                    </div>
+
+                    <p className="text-sm text-green-700 mb-4">
+                        Add trusted websites that the AI can crawl for real-time knowledge. Higher authority scores = more trust.
+                    </p>
+
+                    {/* Add Source Form */}
+                    <div className="flex gap-2 mb-4">
+                        <input
+                            type="text"
+                            placeholder="Domain (e.g., developer.mozilla.org)"
+                            id="newWebSourceDomain"
+                            className="flex-1 px-3 py-2 rounded-lg border border-green-200 focus:ring-2 focus:ring-green-500 text-sm"
+                        />
+                        <input
+                            type="text"
+                            placeholder="Display Name"
+                            id="newWebSourceName"
+                            className="w-40 px-3 py-2 rounded-lg border border-green-200 focus:ring-2 focus:ring-green-500 text-sm"
+                        />
+                        <select
+                            id="newWebSourceScore"
+                            className="w-24 px-2 py-2 rounded-lg border border-green-200 text-sm"
+                            defaultValue="7"
+                        >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                <option key={n} value={n}>{n}/10</option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const domainEl = document.getElementById('newWebSourceDomain') as HTMLInputElement;
+                                const nameEl = document.getElementById('newWebSourceName') as HTMLInputElement;
+                                const scoreEl = document.getElementById('newWebSourceScore') as HTMLSelectElement;
+
+                                if (domainEl.value) {
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        webSources: [...prev.webSources, {
+                                            domain: domainEl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+                                            displayName: nameEl.value || domainEl.value,
+                                            authorityScore: parseInt(scoreEl.value)
+                                        }]
+                                    }));
+                                    domainEl.value = '';
+                                    nameEl.value = '';
+                                    scoreEl.value = '7';
+                                }
+                            }}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
+                        >
+                            + Add
+                        </button>
+                    </div>
+
+                    {/* Sources List */}
+                    {formData.webSources.length > 0 && (
+                        <div className="bg-white rounded-lg border border-green-200 divide-y divide-gray-100">
+                            {formData.webSources.map((source, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-3">
+                                    <div>
+                                        <span className="font-medium text-gray-900">{source.displayName}</span>
+                                        <span className="text-gray-500 text-sm ml-2">({source.domain})</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                            Trust: {source.authorityScore}/10
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    webSources: prev.webSources.filter((_, i) => i !== idx)
+                                                }));
+                                            }}
+                                            className="text-red-500 hover:text-red-700 text-sm"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="mt-2 text-xs text-green-600 text-right">
+                        {formData.webSources.length} source{formData.webSources.length !== 1 && 's'} added
                     </div>
                 </div>
 

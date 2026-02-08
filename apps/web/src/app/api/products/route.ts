@@ -42,7 +42,8 @@ export async function POST(request: NextRequest) {
             domain,
             description,
             selectedKbIds, // Array of KB IDs
-            primaryColor
+            primaryColor,
+            webSources // Array of { domain, displayName, authorityScore }
         } = body;
 
         if (!name || !slug) {
@@ -83,6 +84,31 @@ export async function POST(request: NextRequest) {
                 // Should we delete product? Maybe just warn.
                 console.error('Failed to link KBs:', linkError);
                 return NextResponse.json({ error: 'Product created but failed to link KBs: ' + linkError.message }, { status: 500 });
+            }
+        }
+
+        // 3. Add Web Sources (OKSE)
+        if (webSources && Array.isArray(webSources) && webSources.length > 0) {
+            const sourcesToInsert = webSources.map((source: { domain: string; displayName: string; authorityScore: number }) => ({
+                product_id: product.id,
+                domain: source.domain,
+                display_name: source.displayName || source.domain,
+                authority_score: source.authorityScore || 7,
+                source_type: 'professional',
+                crawl_frequency: 'daily',
+                url_patterns: ['/*'],
+                css_selectors: { content: 'main, article, .content', exclude: ['nav', 'footer', '.sidebar'] },
+                rate_limit_ms: 1000,
+                is_active: true
+            }));
+
+            const { error: sourceError } = await supabase
+                .from('trusted_web_sources')
+                .insert(sourcesToInsert);
+
+            if (sourceError) {
+                console.error('Failed to add web sources:', sourceError);
+                // Don't fail the whole request, just log
             }
         }
 

@@ -94,13 +94,123 @@ export async function generateContentMultiTurn(
     }
 }
 
+/**
+ * Generation options for configurable Gemini calls
+ */
+interface GenerationOptions {
+    temperature?: number;
+    maxOutputTokens?: number;
+    topP?: number;
+    topK?: number;
+}
+
+/**
+ * Generate content with Gemini Pro model (for verification/complex reasoning)
+ * Use this for high-quality, slower generation
+ */
+export async function generateContentWithGemini(
+    prompt: string,
+    options?: GenerationOptions
+): Promise<string> {
+    if (!GOOGLE_AI_API_KEY) {
+        throw new Error('GOOGLE_AI_API_KEY is not configured');
+    }
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: options?.temperature ?? 0.3,
+                        maxOutputTokens: options?.maxOutputTokens ?? 4096,
+                        topP: options?.topP ?? 0.95,
+                        topK: options?.topK ?? 40,
+                    },
+                }),
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(`Gemini Pro API error: ${response.status} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) {
+            throw new Error('No text in Gemini Pro response');
+        }
+
+        return text;
+    } catch (error) {
+        console.error('[Gemini Pro] Error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate content with Gemini Flash model (for fast drafts/summaries)
+ * Use this for speed-optimized, cheaper generation
+ */
+export async function generateContentWithGeminiFlash(
+    prompt: string,
+    options?: GenerationOptions
+): Promise<string> {
+    if (!GOOGLE_AI_API_KEY) {
+        throw new Error('GOOGLE_AI_API_KEY is not configured');
+    }
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: options?.temperature ?? 0.3,
+                        maxOutputTokens: options?.maxOutputTokens ?? 2048,
+                        topP: options?.topP ?? 0.95,
+                        topK: options?.topK ?? 40,
+                    },
+                }),
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(`Gemini Flash API error: ${response.status} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) {
+            throw new Error('No text in Gemini Flash response');
+        }
+
+        return text;
+    } catch (error) {
+        console.error('[Gemini Flash] Error:', error);
+        throw error;
+    }
+}
+
 export default {
     generateContent,
     generateContentMultiTurn,
+    generateContentWithGemini,
+    generateContentWithGeminiFlash,
 };
 
 /**
- * Generate embedding vector using Google text-embedding-004
+ * Generate embedding vector using Google gemini-embedding-001
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
     if (!GOOGLE_AI_API_KEY) {
@@ -109,12 +219,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
     try {
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${GOOGLE_AI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GOOGLE_AI_API_KEY}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'models/text-embedding-004',
+                    model: 'models/gemini-embedding-001',
                     content: {
                         parts: [{ text: text.substring(0, 5000) }] // Max 5000 chars
                     }

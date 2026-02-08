@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { federatedSearch, buildContextFromResults, RichCitation } from '@/lib/knowledge/federated-search';
 import { evaluateWithCRAG, generateIDontKnow, CRAGResult } from '@/lib/knowledge/crag-evaluator';
+import { okseEngine, FormattedCitation } from '@/lib/okse';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,13 +13,130 @@ const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
 
 export async function POST(request: NextRequest) {
     try {
-        const { query, productId, conversationId, userId } = await request.json();
+        const {
+            query,
+            productId,
+            conversationId,
+            userId,
+            useOkse = false,  // NEW: Flag to use OKSE pipeline
+            knowledgeBaseId,  // Required for OKSE
+            forceComplexity,  // Optional: Force a complexity level
+            skipCache,        // Optional: Skip semantic cache
+        } = await request.json();
 
         if (!query || !productId) {
             return NextResponse.json({ error: 'Query and productId are required' }, { status: 400 });
         }
 
-        console.log(`[Chat] Processing query for product ${productId}: ${query.substring(0, 100)}...`);
+        // ============================================================================
+        // OKSE MODE: Use the new Omniscient Knowledge Synthesis Engine
+        // ============================================================================
+        if (useOkse) {
+            console.log(`[Chat] OKSE Mode - Processing: ${query.substring(0, 80)}...`);
+
+            // Get knowledge base ID if not provided
+            let kbId = knowledgeBaseId;
+            if (!kbId) {
+                const { data: product } = await supabase
+                    .from('products')
+                    .select('knowledge_base_id')
+                    .eq('id', productId)
+                    .single();
+                kbId = product?.knowledge_base_id;
+            }
+
+            if (!kbId) {
+                return NextResponse.json({ error: 'Knowledge base not found' }, { status: 400 });
+            }
+
+            // Process through OKSE engine
+            const okseResult = await okseEngine.process(
+                query,
+                productId,
+                kbId,
+                {
+                    userId,
+                    forceComplexity,
+                    skipCache: skipCache === true,
+                    enableLiveWeb: true, // Live web search enabled!
+                }
+            );
+
+            // Log the interaction
+            await supabase.from('audit_logs').insert({
+                user_id: userId,
+                product_id: productId,
+                event_type: 'query',
+                event_category: 'chat_okse',
+                event_data: {
+                    query: query.substring(0, 500),
+                    pipeline: okseResult.metadata.pipeline_used.join(' → '),
+                    complexity: okseResult.metadata.complexity_level,
+                    cache_hit: okseResult.metadata.cache_hit,
+                    crag_verdict: okseResult.metadata.crag_verdict,
+                    confidence: okseResult.metadata.confidence,
+                    drafts_generated: okseResult.metadata.drafts_generated,
+                    kb_sources: okseResult.metadata.kb_sources_used,
+                    web_sources: okseResult.metadata.web_sources_used,
+                    total_time_ms: okseResult.metadata.total_time_ms,
+                },
+            });
+
+            // Convert to backward-compatible format
+            const sources = okseResult.sources_used.slice(0, 5).map((s) => ({
+                title: s.title,
+                excerpt: s.contextual_summary || s.chunk_content?.substring(0, 200) + '...',
+                type: s.type === 'kb' ? 'internal_documents' : 'web',
+                icon: s.type === 'kb' ? '📚' : '🌐',
+                url: s.url,
+                trustLevel: s.trust_stars * 20, // Convert 1-5 stars to 20-100
+                domain: s.domain, // NEW: Include domain
+            }));
+
+            // Build rich citations with domain names
+            const richCitations = okseResult.citations.map((c: FormattedCitation) => ({
+                index: c.index,
+                title: c.title,
+                sourceTag: c.source_tag,
+                trustStars: c.trust_stars,
+                url: c.url,
+            }));
+
+            return NextResponse.json({
+                answer: okseResult.answer,
+                sources,
+                citations: richCitations,
+                confidence: okseResult.metadata.confidence,
+                sourcesUsed: okseResult.sources_used.length,
+                federatedSearch: false, // Not used in OKSE mode
+                // OKSE-specific metadata
+                okse: {
+                    enabled: true,
+                    complexity: okseResult.metadata.complexity_level,
+                    pipeline: okseResult.metadata.pipeline_used,
+                    cacheHit: okseResult.metadata.cache_hit,
+                    draftsGenerated: okseResult.metadata.drafts_generated,
+                    retrievalTimeMs: okseResult.metadata.retrieval_time_ms,
+                    generationTimeMs: okseResult.metadata.generation_time_ms,
+                    totalTimeMs: okseResult.metadata.total_time_ms,
+                },
+                reasoning: {
+                    verdict: okseResult.metadata.crag_verdict || 'RELEVANT',
+                    confidence: okseResult.metadata.confidence,
+                    correctionApplied: null,
+                    webSupplementUsed: okseResult.metadata.web_sources_used > 0,
+                    evaluatedSources: okseResult.sources_used.length,
+                    sourceTypes: [
+                        ...new Set(okseResult.sources_used.map(s => s.type))
+                    ],
+                },
+            });
+        }
+
+        // ============================================================================
+        // LEGACY MODE: Original federated search + CRAG flow
+        // ============================================================================
+        console.log(`[Chat] Legacy Mode - Processing query for product ${productId}: ${query.substring(0, 100)}...`);
 
         // 1. Generate embedding for the query using Gemini
         const queryEmbedding = await generateGeminiEmbedding(query);
@@ -226,12 +344,12 @@ async function generateGeminiEmbedding(text: string): Promise<number[]> {
             }
 
             const response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${GEMINI_API_KEY}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: 'models/text-embedding-004',
+                        model: 'models/gemini-embedding-001',
                         content: { parts: [{ text }] },
                     }),
                 }

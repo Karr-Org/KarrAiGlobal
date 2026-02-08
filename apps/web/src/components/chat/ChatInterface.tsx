@@ -17,6 +17,10 @@ import {
     Menu
 } from 'lucide-react';
 import Link from 'next/link';
+import { generatePresentation } from '@/lib/gamma/generator';
+import type { GammaPresentation } from '@/lib/gamma/types';
+import { GammaChatCard, parsePresentationRequest, PresentationGenerating } from '@/components/gamma/GammaChatIntegration';
+import GammaViewer from '@/components/gamma/GammaViewer';
 
 interface Message {
     id: string;
@@ -26,6 +30,8 @@ interface Message {
     sources?: Source[];
     confidence?: number;
     isStreaming?: boolean;
+    presentation?: GammaPresentation;
+    generationTopic?: string;
 }
 
 interface Source {
@@ -53,6 +59,8 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [showSidebar, setShowSidebar] = useState(false);
+    const [viewingPresentation, setViewingPresentation] = useState<GammaPresentation | null>(null);
+    const [viewerMode, setViewerMode] = useState<'view' | 'edit'>('view');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -78,6 +86,67 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+
+        // Check for presentation request
+        const presentationRequest = parsePresentationRequest(userMessage.content);
+
+        if (presentationRequest.shouldGenerate) {
+            // Add generating placeholder
+            const generatingId = (Date.now() + 1).toString();
+            setMessages(prev => [...prev, {
+                id: generatingId,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date(),
+                generationTopic: presentationRequest.topic || 'presentation',
+                isStreaming: true
+            }]);
+
+            try {
+                // Generate presentation
+                const presentation = await generatePresentation({
+                    topic: presentationRequest.topic || 'Untitled',
+                    cardCount: presentationRequest.cardCount || 5,
+                    theme: presentationRequest.theme as any || 'midnight',
+                    audience: presentationRequest.audience || 'General Audience',
+                    tone: (presentationRequest.tone || 'professional') as any,
+                    productId,
+                    userId: userId || 'anonymous',
+                    style: 'photorealistic',
+                    includeImages: true
+                });
+
+                // Update message with result
+                setMessages(prev => prev.map(m => {
+                    if (m.id === generatingId) {
+                        return {
+                            ...m,
+                            content: `I've created a presentation about **${presentationRequest.topic}** for you.`,
+                            presentation,
+                            isStreaming: false,
+                            generationTopic: undefined
+                        };
+                    }
+                    return m;
+                }));
+            } catch (error) {
+                console.error('Generation failed:', error);
+                setMessages(prev => prev.map(m => {
+                    if (m.id === generatingId) {
+                        return {
+                            ...m,
+                            content: 'Sorry, I encountered an error while generating the presentation. Please try again.',
+                            isStreaming: false,
+                            generationTopic: undefined
+                        };
+                    }
+                    return m;
+                }));
+            } finally {
+                setIsLoading(false);
+            }
+            return;
+        }
 
         // Simulate AI response (in production, this calls the actual API)
         setTimeout(() => {
@@ -185,7 +254,14 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                 <div className="flex-1 overflow-y-auto scrollbar-thin">
                     <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
                         {messages.map((message) => (
-                            <MessageBubble key={message.id} message={message} />
+                            <MessageBubble
+                                key={message.id}
+                                message={message}
+                                onViewPresentation={(p) => {
+                                    setViewingPresentation(p);
+                                    setViewerMode('view');
+                                }}
+                            />
                         ))}
 
                         {isLoading && (
@@ -271,11 +347,33 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                     </form>
                 </div>
             </div>
+
+            {/* Gamma Viewer Overlay */}
+            {viewingPresentation && (
+                <div className="fixed inset-0 z-[100]">
+                    <GammaViewer
+                        presentation={viewingPresentation}
+                        mode={viewerMode}
+                        onClose={() => setViewingPresentation(null)}
+                        onEdit={() => setViewerMode('edit')}
+                        onSave={(updated) => {
+                            // Update the presentation in messages state
+                            setMessages(prev => prev.map(m =>
+                                m.presentation?.id === updated.id
+                                    ? { ...m, presentation: updated }
+                                    : m
+                            ));
+                            setViewingPresentation(updated);
+                        }}
+                        userId={userId}
+                    />
+                </div>
+            )}
         </div>
     );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, onViewPresentation }: { message: Message; onViewPresentation: (p: GammaPresentation) => void }) {
     const [showSources, setShowSources] = useState(false);
     const isUser = message.role === 'user';
 
@@ -302,6 +400,27 @@ function MessageBubble({ message }: { message: Message }) {
                     <div className="text-sm whitespace-pre-wrap prose prose-sm max-w-none">
                         {formatContent(message.content)}
                     </div>
+
+                    {message.isStreaming && message.generationTopic && (
+                        <div className="mt-3">
+                            <PresentationGenerating topic={message.generationTopic} />
+                        </div>
+                    )}
+
+                    {message.presentation && (
+                        <div className="mt-3">
+                            <GammaChatCard
+                                presentation={message.presentation}
+                                onOpenViewer={() => onViewPresentation(message.presentation!)}
+                                onEdit={() => {
+                                    onViewPresentation(message.presentation!);
+                                    // Mode will be set by the parent handler if logic allows, 
+                                    // or passing specific mode callback needed.
+                                    // For now GammaChatCard just opens viewer.
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* Sources & Actions for Assistant */}

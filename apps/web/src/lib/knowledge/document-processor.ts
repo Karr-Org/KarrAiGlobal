@@ -19,7 +19,7 @@ const supabase = createClient(
 );
 
 const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
-const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent';
+const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
 
 async function getEmbedding(text: string): Promise<number[]> {
     try {
@@ -27,16 +27,30 @@ async function getEmbedding(text: string): Promise<number[]> {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: 'models/text-embedding-004',
+                model: 'models/gemini-embedding-001',
                 content: { parts: [{ text }] },
+                outputDimensionality: 768,  // CRITICAL: Match database VECTOR(768) schema
             }),
         });
 
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Gemini Embedding API Error: ${response.status} ${errorText}`);
+        }
+
         const data = await response.json();
-        return data.embedding?.values || [];
+        const embedding = data.embedding?.values || [];
+
+        // 🛡️ SECURITY CHECK: strictly enforce 768 dimensions
+        if (embedding.length !== 768) {
+            console.error(`[CRITICAL] Embedding dimension mismatch! Expected 768, got ${embedding.length}`);
+            throw new Error(`Embedding generation failed: Returned ${embedding.length} dimensions, expected 768. Aborting to protect database.`);
+        }
+
+        return embedding;
     } catch (e) {
         console.error('Embedding error:', e);
-        return [];
+        throw e; // Re-throw to fail the upload process rather than saving bad data
     }
 }
 

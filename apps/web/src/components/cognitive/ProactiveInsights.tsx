@@ -112,17 +112,37 @@ export function ProactiveInsights({
         setDismissedIds(prev => new Set([...prev, insightId]));
         onInsightDismiss?.(insightId);
 
-        // API call to mark as dismissed
+        // API call to mark as dismissed (fire and forget with error handling)
         fetch('/api/cognitive/insights/dismiss', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ insightId }),
+        }).catch(err => {
+            console.warn('Failed to dismiss insight on server:', err);
+            // Don't throw - we've already optimistically dismissed in UI
         });
     };
 
     const handleAction = (insight: Insight) => {
         onInsightClick?.(insight);
         handleDismiss(insight.id);
+    };
+
+    const handleDismissAll = () => {
+        const allIds = insights.map(i => i.id);
+        setDismissedIds(new Set([...dismissedIds, ...allIds]));
+
+        // Optimistically dismiss all on server (fire and forget with error handling)
+        allIds.forEach(id => {
+            fetch('/api/cognitive/insights/dismiss', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ insightId: id }),
+            }).catch(err => {
+                console.warn('Failed to dismiss insight on server:', err);
+                // Don't throw - we've already optimistically dismissed in UI
+            });
+        });
     };
 
     const visibleInsights = insights
@@ -159,14 +179,23 @@ export function ProactiveInsights({
                             {visibleInsights.length} insight{visibleInsights.length !== 1 ? 's' : ''}
                         </span>
                     </div>
-                    {insights.length > maxVisible && (
+                    <div className="flex items-center gap-3">
+                        {insights.length > maxVisible && (
+                            <button
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                className="text-xs text-amber-600 hover:text-amber-700 font-medium transition-colors"
+                            >
+                                {isExpanded ? 'Show less' : `Show all (${insights.length})`}
+                            </button>
+                        )}
                         <button
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            className="text-xs text-amber-600 hover:text-amber-700 font-medium"
+                            onClick={handleDismissAll}
+                            className="p-1 -mr-1 rounded-full text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                            title="Dismiss all insights"
                         >
-                            {isExpanded ? 'Show less' : `Show all (${insights.length})`}
+                            <X className="w-4 h-4" />
                         </button>
-                    )}
+                    </div>
                 </motion.div>
 
                 {/* Insight Cards */}
@@ -217,6 +246,7 @@ export function ProactiveInsights({
                                         <button
                                             onClick={() => handleDismiss(insight.id)}
                                             className="p-1 rounded-lg hover:bg-white/30 dark:hover:bg-black/20 transition-colors"
+                                            title="Dismiss"
                                         >
                                             <X className="w-4 h-4 text-stone-400" />
                                         </button>

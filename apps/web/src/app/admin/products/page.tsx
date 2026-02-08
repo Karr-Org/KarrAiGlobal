@@ -11,7 +11,8 @@ import {
     Zap,
     ExternalLink,
     ChevronRight,
-    Search
+    Search,
+    Rocket
 } from 'lucide-react';
 
 export default function ProductsListPage() {
@@ -116,8 +117,8 @@ export default function ProductsListPage() {
                                                     {product.name}
                                                 </h3>
                                                 <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${product.status === 'active'
-                                                        ? 'bg-green-50 text-green-700 border border-green-100'
-                                                        : 'bg-sand-100 text-sand-600 border border-sand-200'
+                                                    ? 'bg-green-50 text-green-700 border border-green-100'
+                                                    : 'bg-sand-100 text-sand-600 border border-sand-200'
                                                     }`}>
                                                     {product.status === 'active' ? 'Active' : 'Inactive'}
                                                 </span>
@@ -144,14 +145,21 @@ export default function ProductsListPage() {
                                         </div>
                                     </div>
 
-                                    {/* Right: Actions */}
-                                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {/* Right: Actions - Always visible */}
+                                    <div className="flex items-center gap-2">
                                         <Link
                                             href={`/admin/products/${product.id}/knowledge-sources`}
                                             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sand-600 hover:text-sand-800 hover:bg-sand-100 rounded-lg transition-colors"
                                         >
                                             <Zap className="w-3.5 h-3.5" />
                                             Sources
+                                        </Link>
+                                        <Link
+                                            href={`/marketing?productId=${product.id}`}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors"
+                                        >
+                                            <Rocket className="w-3.5 h-3.5" />
+                                            Marketing
                                         </Link>
                                         <Link
                                             href={`/admin/products/${product.id}/settings`}

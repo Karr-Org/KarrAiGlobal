@@ -1470,3 +1470,62 @@ Events:
 ---
 
 END OF DOCUMENT
+
+---
+
+# PART 26: OKSE SYSTEM SPECIFICATION (Omniscient Knowledge Synthesis Engine)
+
+## 26.1 Goal
+Create a search engine capable of competing with Perplexity.ai by fusing internal curated knowledge (Phase 1) with real-time web data (Phase 2), governed by a Corrective RAG (CRAG) system.
+
+## 26.2 Core Components
+
+### 1. Trusted Web Sources
+- **Database:** 	rusted_web_sources
+- **Function:** Define domains (e.g., cleartax.in, gst.gov.in) with high authority.
+- **Crawler:** web-crawler.ts fetches and chunks content for vector search.
+
+### 2. Live Web Search (Serper.dev)
+- **Primary Provider:** Serper.dev (Google Search API wrapper).
+- **Fallback:** Direct scraping of trusted domains.
+- **Smart Caching:** 
+  - 24-hour TTL for standard queries.
+  - 2-hour TTL for 'official' government sources.
+- **Logic:**
+  1. Check Semantic Cache.
+  2. If miss, check Internal KB.
+  3. If Internal KB confidence < threshold OR CRAG verdict = 'IRRELEVANT', trigger Live Web Search.
+  4. Fuse Internal + Web results.
+
+### 3. Knowledge Fusion
+- **Algorithm:** Reciprocal Rank Fusion (RRF) to combine:
+  - Vector Similarity (Semantic)
+  - BM25 (Keyword)
+  - Authority Score (Government > Professional > Blog)
+- **Output:** A unified list of citations.
+
+## 26.3 Architecture
+
+\\\
+User Query
+    
+    
+[Query Complexity Router]
+    
+     SIMPLE: Semantic Cache -> KB Only
+    
+     COMPLEX: KB + Live Web Search (Serper)
+    
+    
+[Knowledge Fusion]
+     (Merges KB chunks + Web snippets)
+    
+    
+[CRAG Evaluator]
+     (Is context relevant?)
+    
+     YES -> Generate Answer
+    
+     NO -> Trigger Deep Web Search -> Generate Answer
+\\\
+

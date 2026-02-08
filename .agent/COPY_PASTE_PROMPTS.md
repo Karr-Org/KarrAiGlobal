@@ -1,15 +1,15 @@
 # Gemini Emails
-ovaismajid@gmail.com
-caovaisshah@gmail.com
-tohundguide@gmail.com
-ovais.shah.company@gmail.com
-sabreenashahtohundguide@gmail.com
+<ovaismajid@gmail.com>
+<caovaisshah@gmail.com>
+<tohundguide@gmail.com>
+<ovais.shah.company@gmail.com>
+<sabreenashahtohundguide@gmail.com>
 
 # COPY-PASTE PROMPTS FOR KARR AI DEVELOPMENT
 
 ## Product in Nutshell
 
-let first recap. we are building a system that allows us to create from the ui any product we want and add knowledge base for that product, remember an exisiting knowledge base can also be connected with any product and then the ai responds only from that knowledge base. next once the prodcut is ready it is hosted on a particular domain so that when users signup to it they can access only this product. then users also have the option of adding their own knowledge base documents and those documents are specific to just hat user. now ai checks if the documents added by the user are of high quality and we dont already have the knowledge in that product knowldge base then it notifies the product team to verify if it should be added to the product for all users. 
+let first recap. we are building a system that allows us to create from the ui any product we want and add knowledge base for that product, remember an exisiting knowledge base can also be connected with any product and then the ai responds only from that knowledge base. next once the prodcut is ready it is hosted on a particular domain so that when users signup to it they can access only this product. then users also have the option of adding their own knowledge base documents and those documents are specific to just hat user. now ai checks if the documents added by the user are of high quality and we dont already have the knowledge in that product knowldge base then it notifies the product team to verify if it should be added to the product for all users.
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        ADMIN (karrai.global)                                  │
@@ -56,7 +56,6 @@ let first recap. we are building a system that allows us to create from the ui a
 │     └─► Added to PRODUCT KB (benefits ALL users!)                           │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-
                     ┌─────────────────┐
                     │   GLOBAL KB     │
                     │ (Shared across  │
@@ -74,7 +73,6 @@ let first recap. we are building a system that allows us to create from the ui a
     │  User A   │    │  User B   │    │  User C   │
     │ Private KB│    │ Private KB│    │ Private KB│
     └───────────┘    └───────────┘    └───────────┘
-
 
 ---
 
@@ -103,72 +101,23 @@ Current Architecture (Product Factory 2.0):
 i.e. karrai.global
 - Critical: Remember we are like the shopify of knowledge Agents. Anyone can come and create a knowledge Agent and sell it to the users. So when we are adding features in a product we are adding features for all products that are created already or will be created in the future. So the system needs to be designed that way.
 - CRITICAL: Please make sure you are not changing any code that is working perfectly fine.
+I am continuing development on Karr AI Global.
+In the next session, you should focus on connecting the new UI features to the database so user edits and uploads are actually saved.
 
+Here is the exact prompt you can use to start the next session seamlessly:
 
+markdown
+Read [.agent/sessions/2026-02-06.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/.agent/sessions/2026-02-06.md:0:0-0:0) and [.agent/PROJECT_STATE.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/.agent/PROJECT_STATE.md:0:0-0:0) to establish context.
+We just finished integrating the Gamma presentation builder into the main Chat Interface.
+Now, please help me with the "Persistence" layer:
+1. **Save Edits:** When I edit a presentation in the Chat overlay, ensure the changes are saved to the `presentations` table in Supabase.
+2. **Image Storage:** Connect the new Image Upload button in [BlockEditor](cci:1://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/apps/web/src/components/gamma/BlockEditor.tsx:21:0-135:1) to Supabase Storage so images persist after reload.
+Let's start by implementing the `savePresentation` server action.
+Why this is the right next step:
+Current State: The "Edit" button works, but changes are only local (they disappear if you refresh).
+Image Upload: We built the UI for uploading, but currently URL.createObjectURL is temporary; we need a real backend upload.
+Goal: This completes the "Gamma Presentation System" fully, making it production-ready before you move on to Razorpay or other features.
 
-
-Thought for 2s
-
-
-
-Great question! Let me check the Cognitive Memory Architecture to see what's been built and what's next:
-
-Analyzed
-COGNITIVE_MEMORY_ARCHITECTURE.md#L1-752
-📊 Cognitive Digital Twin - Implementation Status
-Based on the architecture document, here's what's been implemented vs not yet implemented:
-
-✅ PHASE 1: COMPLETE (What You Just Tested)
-Feature	Status	Notes
-Chat Sessions (chat_sessions table)	✅ Done	Sessions save with metadata
-Chat Messages (chat_messages table)	✅ Done	Messages persist with sources
-Auto-generated Titles	✅ Done	AI creates titles + emoji
-Session Sidebar	✅ Done	With search functionality
-URL-based Session Persistence	✅ Done	Reload keeps you on same chat
-Session Switching	✅ Done	Click to load history
-⏳ PHASE 2-7: NOT YET IMPLEMENTED
-These are built in the code (files exist) but not yet connected to the UI:
-
-Phase 2: Intelligence Extraction (Files exist, not fully wired)
-intelligence-extractor.ts
- - Can extract:
-Session summaries
-Topics & categories
-Entities (people, companies)
-User insights (expertise, goals)
-Emotional sentiment
-
-Phase 3: User Cognitive Profile (Schema exists)
-user_cognitive_profile table - Would store:
-User's profession/industry
-Expertise levels per topic
-Communication preferences
-Behavioral patterns
-
-Phase 4: Entity Knowledge Graph (Schema exists)
-user_entity_graph table - Would store:
-People user mentions (clients, colleagues)
-Companies and relationships
-Context about each entity
-
-Phase 5: Memory Facts (Schema exists)
-memory_facts table - Would store:
-Extracted knowledge ("Rahul owns a bakery")
-Temporal facts with validity periods
-
-Phase 6: Proactive Insights (Schema exists)
-proactive_insights table - Would create:
-Smart reminders ("GST deadline approaching")
-Suggestions based on patterns
-
-
-Read 
-.agent/PROJECT_STATE.md
- to understand our progress (Phase 3 Complete: Proactive Insights Engine). Also read 
-.agent/sessions/2026-02-04_proactive_insights_engine.md
- to see the technical details of the engine we just built.
-
-We are now ready to start Phase 4: Autonomous Operations (KarrPulse). Let's begin by implementing the cron jobs to run the Proactive Insights Engine automatically.
 
 
 
@@ -212,7 +161,7 @@ This ensures the next AI session can continue seamlessly.
 
 ---
 
-##  START DEV SERVER (Copy to terminal)
+## START DEV SERVER (Copy to terminal)
 
 ```powershell
 cd "d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global\apps\web"

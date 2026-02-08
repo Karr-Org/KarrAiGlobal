@@ -11,6 +11,7 @@ import {
     BarChart3,
     Shield,
     Lightbulb,
+    Globe,
     ChevronRight,
     Plus
 } from 'lucide-react';
@@ -73,8 +74,8 @@ export function AdminSidebar() {
                                 key={item.name}
                                 href={item.href}
                                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-medium transition-all duration-150 ${active
-                                        ? 'bg-sand-200/80 text-sand-900'
-                                        : 'text-sand-600 hover:bg-sand-200/50 hover:text-sand-800'
+                                    ? 'bg-sand-200/80 text-sand-900'
+                                    : 'text-sand-600 hover:bg-sand-200/50 hover:text-sand-800'
                                     }`}
                             >
                                 <Icon className={`w-[18px] h-[18px] ${active ? 'text-terracotta-600' : 'text-sand-400 group-hover:text-sand-500'}`} />
@@ -98,8 +99,8 @@ export function AdminSidebar() {
                                 key={item.name}
                                 href={item.href}
                                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-medium transition-all duration-150 ${active
-                                        ? 'bg-sand-200/80 text-sand-900'
-                                        : 'text-sand-600 hover:bg-sand-200/50 hover:text-sand-800'
+                                    ? 'bg-sand-200/80 text-sand-900'
+                                    : 'text-sand-600 hover:bg-sand-200/50 hover:text-sand-800'
                                     }`}
                             >
                                 <Icon className={`w-[18px] h-[18px] ${active ? 'text-terracotta-600' : 'text-sand-400'}`} />

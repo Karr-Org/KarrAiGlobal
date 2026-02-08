@@ -15,7 +15,8 @@ import {
     ChevronRight,
     Zap,
     Database,
-    Eye
+    Eye,
+    RefreshCw
 } from 'lucide-react';
 
 interface KnowledgeSource {
@@ -59,6 +60,7 @@ export default function KnowledgeSourcesPage() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedIntegration, setSelectedIntegration] = useState<ApiIntegration | null>(null);
     const [saving, setSaving] = useState(false);
+    const [crawlingSourceId, setCrawlingSourceId] = useState<string | null>(null);
 
     const [formType, setFormType] = useState<'api' | 'web'>('api');
     const [formData, setFormData] = useState({
@@ -200,6 +202,29 @@ export default function KnowledgeSourcesPage() {
             setSources(sources.filter(s => s.id !== sourceId));
         } catch (error) {
             console.error('Failed to delete source:', error);
+        }
+    }
+
+    async function crawlSource(sourceId: string) {
+        setCrawlingSourceId(sourceId);
+        try {
+            const res = await fetch('/api/okse/crawler', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: sourceId }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`✅ Crawl complete! ${data.result?.pages_crawled || 0} pages processed.`);
+                fetchSources(); // Refresh to show updated stats
+            } else {
+                alert(`❌ Crawl failed: ${data.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Failed to crawl source:', error);
+            alert('Failed to start crawl. Check console for details.');
+        } finally {
+            setCrawlingSourceId(null);
         }
     }
 
@@ -419,6 +444,17 @@ export default function KnowledgeSourcesPage() {
                                                         </>
                                                     )}
                                                 </button>
+                                                {source.source_type === 'trusted_web' && (
+                                                    <button
+                                                        onClick={() => crawlSource(source.id)}
+                                                        disabled={crawlingSourceId === source.id}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                                                        title="Crawl Now"
+                                                    >
+                                                        <RefreshCw className={`w-3.5 h-3.5 ${crawlingSourceId === source.id ? 'animate-spin' : ''}`} />
+                                                        {crawlingSourceId === source.id ? 'Crawling...' : 'Crawl'}
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => deleteSource(source.id)}
                                                     className="p-1.5 text-sand-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"

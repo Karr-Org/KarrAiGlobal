@@ -104,6 +104,29 @@ export async function POST(request: NextRequest) {
 
         if (error) throw error;
 
+        // If this is a trusted_web source, also add to trusted_web_sources for OKSE crawler
+        if (sourceType === 'trusted_web' && config?.allowed_domains) {
+            const domains = config.allowed_domains as string[];
+            if (domains.length > 0) {
+                // Insert each domain into trusted_web_sources
+                for (const domain of domains) {
+                    await supabase.from('trusted_web_sources').insert({
+                        product_id: productId,
+                        domain: domain,
+                        display_name: name,
+                        authority_score: Math.round((trustLevel || 80) / 10),
+                        source_type: 'professional',
+                        crawl_frequency: 'daily',
+                        url_patterns: ['/*'],
+                        css_selectors: { content: 'main, article, .content', exclude: ['nav', 'footer', '.sidebar'] },
+                        rate_limit_ms: 1000,
+                        is_active: true,
+                        knowledge_source_id: source.id, // Link back to knowledge_sources
+                    });
+                }
+            }
+        }
+
         return NextResponse.json({
             success: true,
             source,

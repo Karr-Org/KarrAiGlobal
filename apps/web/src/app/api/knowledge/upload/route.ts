@@ -306,14 +306,14 @@ async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
                 // Construct requests array for batch API with best practices
                 const requests = batch.texts.map(text => ({
-                    model: 'models/text-embedding-004',
+                    model: 'models/gemini-embedding-001',
                     content: { parts: [{ text }] },
                     taskType: 'RETRIEVAL_DOCUMENT', // Optimized for document storage/retrieval
                     outputDimensionality: 768      // Match our DB schema (VECTOR(768))
                 }));
 
                 const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key=${GEMINI_API_KEY}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${GEMINI_API_KEY}`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
