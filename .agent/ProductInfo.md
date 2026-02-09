@@ -1,4 +1,4 @@
-# KarrAi Global - Product Factory Architecture
+# MakeMyAI Global - Product Factory Architecture
 
 ## 1. Universal Auth & Routing Logic
 ALL products created in this system must strictly follow this URL and Authentication pattern. No exceptions.
@@ -17,7 +17,7 @@ For every product (e.g., `indiangstai.com`, `legaltax.com`), the visible URLs mu
 The `middleware.ts` handles the mapping automatically:
 1.  User visits `custom-domain.com/path`
 2.  Middleware checks DB for matching Product Slug
-3.  Middleware rewrites request to `karrai-global.vercel.app/p/[slug]/path`
+3.  Middleware rewrites request to `MakeMyAI-global.vercel.app/p/[slug]/path`
 4.  User sees `custom-domain.com/path` (URL stays clean)
 
 ## 2. Multi-Tenant Data Isolation

@@ -1,6 +1,6 @@
 # Hybrid Knowledge Engine - Implementation Specification
 
-> **Vision:** Transform Karr AI from a document-based Q&A system into the world's most trusted Hybrid Knowledge Platform. The "Shopify of Knowledge Agents."
+> **Vision:** Transform MakeMyAI from a document-based Q&A system into the world's most trusted Hybrid Knowledge Platform. The "Shopify of Knowledge Agents."
 
 ---
 

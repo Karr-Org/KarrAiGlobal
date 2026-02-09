@@ -1,4 +1,4 @@
-# Karr AI - Current Project State
+# MakeMyAI - Current Project State
 
 > **Last Updated:** 2026-02-06 14:45 IST
 > **Purpose:** Quick reference for AI assistants to continue development across sessions.
@@ -15,7 +15,7 @@
 ## 📁 Project Location
 
 ```
-d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global\
+d:\Tohund Guide\Tohund Guide\Softwares\MakeMyAI.Global\
 ```
 
 ---
@@ -80,7 +80,7 @@ d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global\
 
 - Embeddings: `text-embedding-004`
 - Chat: `gemini-2.0-flash`
-- **Web Search:** Karr AI Smart Scraper (FREE) + CRAG Evaluator for verification
+- **Web Search:** MakeMyAI Smart Scraper (FREE) + CRAG Evaluator for verification
 
 ### OmniForge Architecture
 
@@ -183,7 +183,7 @@ GOOGLE_AI_API_KEY=<configured>
 
 #### What Makes It Revolutionary (vs ChatGPT, Notion AI, Microsoft Graph)
 
-| Feature | ChatGPT | Notion AI | MS Graph | **Karr AI NRM** |
+| Feature | ChatGPT | Notion AI | MS Graph | **MakeMyAI NRM** |
 |---------|---------|-----------|----------|-----------------|
 | Entity Tracking | Basic facts | Contact fields | Org chart | **Auto-extracted + Rich context** |
 | Relationships | ❌ None | Manual links | Org chart only | **Inferred + Evolved + Predicted** |

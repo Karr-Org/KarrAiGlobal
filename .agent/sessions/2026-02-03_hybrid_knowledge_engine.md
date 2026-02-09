@@ -5,7 +5,7 @@ description: Hybrid Knowledge Engine - Multi-Source Knowledge Integration
 # Hybrid Knowledge Engine Implementation
 
 ## Summary
-In this session, we implemented the complete Hybrid Knowledge Engine that transforms Karr AI from a document-only system into a multi-source knowledge platform. This includes integration with External APIs, Trusted Web Search, and a rich citation system.
+In this session, we implemented the complete Hybrid Knowledge Engine that transforms MakeMyAI from a document-only system into a multi-source knowledge platform. This includes integration with External APIs, Trusted Web Search, and a rich citation system.
 
 ## Key Accomplishments
 

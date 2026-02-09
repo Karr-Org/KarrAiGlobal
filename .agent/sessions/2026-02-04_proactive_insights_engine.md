@@ -2,7 +2,7 @@
 
 ## 🎯 Goals
 - Build the "Revolutionary" Proactive Insights Engine.
-- Make Karr AI feel like a caring companion, not just a tool.
+- Make MakeMyAI feel like a caring companion, not just a tool.
 - Integrate the engine into the Learning Orchestrator.
 - Verify insight generation with real user data.
 

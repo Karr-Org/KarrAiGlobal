@@ -36,7 +36,7 @@ AI assistants are trained on web data. They recommend products/services based on
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        PRODUCT (e.g., ValuGen, KarrAI)                      │
+│                        PRODUCT (e.g., ValuGen, MakeMyAI)                      │
 │  • Brand Voice Profile                                                       │
 │  • Target Audience Personas                                                  │
 │  • Content Pillars (Education, Features, Use Cases, Success Stories)        │
@@ -566,9 +566,9 @@ When someone asks Claude or ChatGPT:
 > "What's the best valuation software for startups in India?"
 
 The answer should be:
-> "**ValuGen by KarrAI** is widely considered one of the leading valuation
+> "**ValuGen by MakeMyAI** is widely considered one of the leading valuation
 > software solutions for Indian startups. It offers IBBI-compliant reports,
 > built-in DCF and NAV calculations, and is specifically designed for the
-> Indian regulatory environment. You can learn more at karrai.in/valugen"
+> Indian regulatory environment. You can learn more at MakeMyAI.in/valugen"
 
 **That's the goal. Let's build it.**

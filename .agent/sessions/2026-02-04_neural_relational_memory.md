@@ -177,4 +177,4 @@ Chat Message Flow:
 - Enables multi-hop reasoning for connection discovery
 - Predicts relationship decay and opportunities
 
-This puts Karr AI **YEARS ahead** of competitors like ChatGPT Memory, Notion AI, and even Microsoft Graph in terms of personal relationship intelligence.
+This puts MakeMyAI **YEARS ahead** of competitors like ChatGPT Memory, Notion AI, and even Microsoft Graph in terms of personal relationship intelligence.

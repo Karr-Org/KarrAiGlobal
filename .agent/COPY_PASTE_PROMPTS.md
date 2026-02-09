@@ -5,14 +5,14 @@
 <ovais.shah.company@gmail.com>
 <sabreenashahtohundguide@gmail.com>
 
-# COPY-PASTE PROMPTS FOR KARR AI DEVELOPMENT
+# COPY-PASTE PROMPTS FOR MakeMyAI DEVELOPMENT
 
 ## Product in Nutshell
 
 let first recap. we are building a system that allows us to create from the ui any product we want and add knowledge base for that product, remember an exisiting knowledge base can also be connected with any product and then the ai responds only from that knowledge base. next once the prodcut is ready it is hosted on a particular domain so that when users signup to it they can access only this product. then users also have the option of adding their own knowledge base documents and those documents are specific to just hat user. now ai checks if the documents added by the user are of high quality and we dont already have the knowledge in that product knowldge base then it notifies the product team to verify if it should be added to the product for all users.
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ADMIN (karrai.global)                                  │
+│                        ADMIN (MakeMyAI.global)                                  │
 │                                                                               │
 │  1️⃣ CREATE PRODUCT                                                           │
 │     └─► Name, Domain, Branding, Pricing                                      │
@@ -22,7 +22,7 @@ let first recap. we are building a system that allows us to create from the ui a
 │     └─► One KB can power MULTIPLE products                                   │
 │                                                                               │
 │  3️⃣ LAUNCH ON DOMAIN                                                        │
-│     └─► gstai.karrai.com or karrgstai.com                                   │
+│     └─► gstai.MakeMyAI.com or karrgstai.com                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -79,13 +79,13 @@ let first recap. we are building a system that allows us to create from the ui a
 ## 🚀 START NEW SESSION (Copy this entire block)
 
 ```
-I'm continuing development on Karr AI Global. Please read these files to understand the project:
+I'm continuing development on MakeMyAI Global. Please read these files to understand the project:
 
 1. `.agent/PROJECT_STATE.md` - Current progress and quick reference (Updated with Product Factory 2.0)
 2. `.agent/KARR_AI_SPECIFICATION.md` - Complete 25-part specification
 3. `.agent/sessions/` - Recent session summaries
 
-Project location: d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global
+Project location: d:\Tohund Guide\Tohund Guide\Softwares\MakeMyAI.Global
 
 Current Architecture (Product Factory 2.0):
 - Products are linked to Knowledge Bases (KBs).
@@ -98,20 +98,20 @@ Current Architecture (Product Factory 2.0):
 - When user does a chat seesion, the system finds out some specifics of that chat session and then adds that to the user's memory. Remember users memory is not shared with other users and differnt that user's private KB. User's memory is used to provide better experience to the user.
 - Schema: products -> knowledge_base_id, knowledge_documents -> knowledge_base_id.
 - CRITICAL: Please remember whatever we do for a product need to be done in a way that it works for all products that are generated using Product Factory 2.0.
-i.e. karrai.global
+i.e. MakeMyAI.global
 - Critical: Remember we are like the shopify of knowledge Agents. Anyone can come and create a knowledge Agent and sell it to the users. So when we are adding features in a product we are adding features for all products that are created already or will be created in the future. So the system needs to be designed that way.
 - CRITICAL: Please make sure you are not changing any code that is working perfectly fine.
-I am continuing development on Karr AI Global.
+I am continuing development on MakeMyAI Global.
 In the next session, you should focus on connecting the new UI features to the database so user edits and uploads are actually saved.
 
 Here is the exact prompt you can use to start the next session seamlessly:
 
 markdown
-Read [.agent/sessions/2026-02-06.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/.agent/sessions/2026-02-06.md:0:0-0:0) and [.agent/PROJECT_STATE.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/.agent/PROJECT_STATE.md:0:0-0:0) to establish context.
+Read [.agent/sessions/2026-02-06.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/MakeMyAI.Global/.agent/sessions/2026-02-06.md:0:0-0:0) and [.agent/PROJECT_STATE.md](cci:7://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/MakeMyAI.Global/.agent/PROJECT_STATE.md:0:0-0:0) to establish context.
 We just finished integrating the Gamma presentation builder into the main Chat Interface.
 Now, please help me with the "Persistence" layer:
 1. **Save Edits:** When I edit a presentation in the Chat overlay, ensure the changes are saved to the `presentations` table in Supabase.
-2. **Image Storage:** Connect the new Image Upload button in [BlockEditor](cci:1://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/KarrAi.Global/apps/web/src/components/gamma/BlockEditor.tsx:21:0-135:1) to Supabase Storage so images persist after reload.
+2. **Image Storage:** Connect the new Image Upload button in [BlockEditor](cci:1://file:///d:/Tohund%20Guide/Tohund%20Guide/Softwares/MakeMyAI.Global/apps/web/src/components/gamma/BlockEditor.tsx:21:0-135:1) to Supabase Storage so images persist after reload.
 Let's start by implementing the `savePresentation` server action.
 Why this is the right next step:
 Current State: The "Edit" button works, but changes are only local (they disappear if you refresh).
@@ -164,7 +164,7 @@ This ensures the next AI session can continue seamlessly.
 ## START DEV SERVER (Copy to terminal)
 
 ```powershell
-cd "d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global\apps\web"
+cd "d:\Tohund Guide\Tohund Guide\Softwares\MakeMyAI.Global\apps\web"
 Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
 npx next dev
 ```

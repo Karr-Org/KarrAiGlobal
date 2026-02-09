@@ -38,13 +38,13 @@ Copy the session ID from the antigravity brain folder for reference.
 Use this prompt to start a new session with full context:
 
 ```
-I'm continuing development on Karr AI. Please read these files to understand the project:
+I'm continuing development on MakeMyAI. Please read these files to understand the project:
 
 1. `.agent/PROJECT_STATE.md` - Current progress and quick reference
 2. `.agent/KARR_AI_SPECIFICATION.md` - Complete 25-part specification
 3. `.agent/sessions/` - Recent session summaries (if any)
 
-Project location: d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global
+Project location: d:\Tohund Guide\Tohund Guide\Softwares\MakeMyAI.Global
 
 Previous session logs (optional): C:\Users\User\.gemini\antigravity\brain\<session-id>\.system_generated\logs\
 
@@ -63,7 +63,7 @@ After reading, continue from where we left off.
 
 ## Dev Server
 ```powershell
-cd "d:\Tohund Guide\Tohund Guide\Softwares\KarrAi.Global\apps\web"
+cd "d:\Tohund Guide\Tohund Guide\Softwares\MakeMyAI.Global\apps\web"
 npx next dev
 ```
 

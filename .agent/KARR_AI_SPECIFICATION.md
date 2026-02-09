@@ -1,4 +1,4 @@
-# KARR AI: THE DEFINITIVE BUILD SPECIFICATION
+# MakeMyAI: THE DEFINITIVE BUILD SPECIFICATION
 ## Complete Engineering Prompt for AI Builders
 ### Version 2.0 — Final Consolidated Document
 
@@ -6,7 +6,7 @@
 
 # DOCUMENT OVERVIEW
 
-**Purpose:** This is the SINGLE SOURCE OF TRUTH for building Karr AI. Every requirement, specification, and architectural decision is here. Engineers treat this as their bible.
+**Purpose:** This is the SINGLE SOURCE OF TRUTH for building MakeMyAI. Every requirement, specification, and architectural decision is here. Engineers treat this as their bible.
 
 **Technology Stack:**
 - **Backend:** Supabase (PostgreSQL + pgvector, Auth, Storage, Edge Functions, Realtime)
@@ -26,9 +26,9 @@
 
 # PART 1: VISION & CORE CONCEPT
 
-## 1.1 What is Karr AI?
+## 1.1 What is MakeMyAI?
 
-Karr AI is an **AI FACTORY PLATFORM** — a meta-system that creates, operates, and manages multiple domain-specific AI products from a single core infrastructure.
+MakeMyAI is an **AI FACTORY PLATFORM** — a meta-system that creates, operates, and manages multiple domain-specific AI products from a single core infrastructure.
 
 ```
 ONE FACTORY → UNLIMITED PRODUCTS → PERSONALIZED FOR EACH USER
@@ -43,8 +43,8 @@ ONE FACTORY → UNLIMITED PRODUCTS → PERSONALIZED FOR EACH USER
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    LEVEL 1: KARR AI GLOBAL                       │
-│                       (karrai.global)                            │
+│                    LEVEL 1: MakeMyAI GLOBAL                       │
+│                       (MakeMyAI.global)                            │
 │                                                                  │
 │  The Factory — Houses AI engine, RAG core, billing, admin UI    │
 │  Never exposed to end users of products                         │
@@ -60,7 +60,7 @@ ONE FACTORY → UNLIMITED PRODUCTS → PERSONALIZED FOR EACH USER
 │                                                                  │
 │  Each has: Own domain, Own KB, Own pricing, Own users           │
 │  All share: Core AI engine from Level 1                         │
-│  All billing: Flows back to Karr AI Global                      │
+│  All billing: Flows back to MakeMyAI Global                      │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               │ Personalized For
@@ -77,7 +77,7 @@ ONE FACTORY → UNLIMITED PRODUCTS → PERSONALIZED FOR EACH USER
 ## 1.3 The Ten Commandments (Non-Negotiable Principles)
 
 ### 1. ZERO CODE FOR NEW PRODUCTS
-Admin logs into karrai.global → Clicks "New Product" → Configures → Launches.
+Admin logs into MakeMyAI.global → Clicks "New Product" → Configures → Launches.
 Product goes live on its own domain. NO engineering intervention.
 
 ### 2. MODEL AGNOSTICISM
@@ -663,12 +663,12 @@ xl: 1200px  ← Desktop
 1. **Voice Input** — Prominent mic button, supports Indian English
 2. **Push Notifications** — Deadlines, regulatory updates, responses ready
 3. **Biometric Auth** — Face ID / Fingerprint for quick access
-4. **Share Extensions** — Share TO and FROM Karr AI
+4. **Share Extensions** — Share TO and FROM MakeMyAI
 5. **Widgets** — Quick query, upcoming deadlines
 
 ---
 
-# PART 5: KARR AI GLOBAL (LEVEL 1) — THE FACTORY
+# PART 5: MakeMyAI GLOBAL (LEVEL 1) — THE FACTORY
 
 ## 5.1 Admin Dashboard
 
@@ -697,7 +697,7 @@ Step 2: Branding
 └── Custom CSS (optional)
 
 Step 3: Domain
-├── Subdomain (gstai.karrai.global) OR
+├── Subdomain (gstai.MakeMyAI.global) OR
 └── Custom domain (karrgstai.com)
 
 Step 4: Knowledge Base
@@ -724,7 +724,7 @@ Step 7: Review & Launch
 
 ## 5.3 Billing (Centralized)
 
-All billing flows through Karr AI Global:
+All billing flows through MakeMyAI Global:
 - Stripe (International) + Razorpay (India)
 - Subscription management, upgrades, downgrades
 - Usage metering and overage handling
@@ -1033,7 +1033,7 @@ Every response can be acted upon:
 - Pre-filled composer
 - To/CC/BCC fields
 - Editable content
-- Send via Karr AI or connected Gmail/Outlook
+- Send via MakeMyAI or connected Gmail/Outlook
 - Track delivery
 
 ### PDF Export
@@ -1237,7 +1237,7 @@ Want me to prepare the amendment data?"
 
 # PART 19: PLATFORM & ECOSYSTEM (KaaS)
 
-## 19.1 Karr AI as a Service
+## 19.1 MakeMyAI as a Service
 
 Let others build on your infrastructure:
 
@@ -1263,7 +1263,7 @@ Let others build on your infrastructure:
 
 ## 19.2 Copilot Integrations
 
-Embed Karr AI where work happens:
+Embed MakeMyAI where work happens:
 - Excel add-in
 - Gmail/Outlook extension
 - Tally plugin
@@ -1308,7 +1308,7 @@ Not just your metrics — their success:
 ## 21.2 Customer Success Dashboard
 
 ```
-Your Karr AI Impact (Last 12 Months):
+Your MakeMyAI Impact (Last 12 Months):
 
 💰 Tax Optimized: ₹23,45,000
 ⚠️ Penalties Avoided: ₹1,23,000

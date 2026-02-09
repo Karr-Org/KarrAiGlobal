@@ -1,5 +1,5 @@
 {
-    "name": "@karrai/rag",
+    "name": "@makemyai/rag",
     "version": "0.1.0",
     "private": true,
     "main": "./src/index.ts",
@@ -9,8 +9,8 @@
         "clean": "rimraf dist"
     },
     "dependencies": {
-        "@karrai/ai": "workspace:*",
-        "@karrai/database": "workspace:*"
+        "@makemyai/ai": "workspace:*",
+        "@makemyai/database": "workspace:*"
     },
     "devDependencies": {
         "typescript": "^5.3.0",
