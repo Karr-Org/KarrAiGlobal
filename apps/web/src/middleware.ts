@@ -23,6 +23,12 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/chat') ||
         pathname.startsWith('/demo') ||
         pathname.startsWith('/gst-ai') ||
+        pathname.startsWith('/social') ||
+        pathname.startsWith('/marketing') ||
+        pathname.startsWith('/personalisation') ||
+        pathname.startsWith('/privacy-policy') ||
+        pathname.startsWith('/terms-and-conditions') ||
+        pathname.startsWith('/contact') ||
         pathname.startsWith('/_next') ||
         pathname.startsWith('/favicon') ||
         pathname.includes('.')
@@ -31,7 +37,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Skip for main app domain (production)
-    const mainDomains = ['karrai.com', 'www.karrai.com', 'karrai-global.vercel.app'];
+    const mainDomains = ['makemyai.app', 'www.makemyai.app', 'karrai.com', 'www.karrai.com', 'karrai-global.vercel.app'];
     if (mainDomains.some(d => baseDomain === d || baseDomain.endsWith(`.${d}`))) {
         return NextResponse.next();
     }
@@ -75,6 +81,6 @@ export const config = {
     matcher: [
         // Only match root and top-level paths that might need domain rewriting
         // Exclude all known app routes and static files for maximum performance
-        '/((?!_next|api|admin|p|auth|chat|demo|gst-ai|favicon|.*\\.).*)',
+        '/((?!_next|api|admin|p|auth|chat|demo|gst-ai|social|marketing|personalisation|privacy-policy|terms-and-conditions|contact|favicon|.*\\.).*)',
     ],
 };
