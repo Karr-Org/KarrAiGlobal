@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { getAdapter } from '@/lib/social/platform-adapter';
 import { saveAccount } from '@/lib/social/social-engine';
+import { verifySignedState } from '@/lib/utils/oauth-state';
 
 export async function GET(request: Request) {
     const url = new URL(request.url);
@@ -15,10 +16,10 @@ export async function GET(request: Request) {
     const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
 
-    // Parse state: userId:timestamp or userId:timestamp:productId
-    const stateParts = state?.split(':') || [];
-    const userId = stateParts[0];
-    const productId = stateParts.length >= 3 ? stateParts[2] : undefined;
+    // Verify and parse HMAC-signed state
+    const parsedState = state ? verifySignedState(state) : null;
+    const userId = parsedState?.userId;
+    const productId = parsedState?.productId;
 
     const redirectBase = productId
         ? `/marketing?productId=${productId}&tab=accounts`
@@ -37,9 +38,9 @@ export async function GET(request: Request) {
         );
     }
 
-    if (!userId) {
+    if (!parsedState || !userId) {
         return NextResponse.redirect(
-            new URL(`${redirectBase}${redirectBase.includes('?') ? '&' : '?'}error=Invalid state parameter`, request.url)
+            new URL(`${redirectBase}${redirectBase.includes('?') ? '&' : '?'}error=Invalid or tampered state parameter`, request.url)
         );
     }
 

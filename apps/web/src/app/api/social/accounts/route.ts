@@ -1,17 +1,19 @@
 /**
- * Social Accounts API
- * GET — List connected accounts
+ * Social Accounts API (Unified)
+ * GET — List connected accounts (scoped by ownerType/ownerId)
  * POST — Initiate OAuth flow (returns auth URL)
  * DELETE — Disconnect an account
  * 
- * Auth: Tries server-side cookie auth first, falls back to x-user-id header
- * (client sends userId from its browser-side Supabase session)
+ * Supports both user-level and product-level accounts via ownerType/ownerId params.
+ * Auth: Tries server-side cookie auth first, falls back to x-user-id header.
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getAccounts, disconnectAccount } from '@/lib/social/social-engine';
 import { getAdapter, type SocialPlatform } from '@/lib/social/platform-adapter';
+import { createSignedState } from '@/lib/utils/oauth-state';
+import { validateConnectSocial } from '@/lib/validations';
 
 async function getCurrentUserId(request: Request): Promise<string | null> {
     // 1. Try server-side cookie auth
@@ -30,6 +32,20 @@ async function getCurrentUserId(request: Request): Promise<string | null> {
     return null;
 }
 
+/**
+ * Resolve productId from unified owner params or legacy productId param.
+ */
+function resolveProductId(url: URL, body?: Record<string, unknown>): string | undefined {
+    const ownerType = (body?.ownerType as string) || url.searchParams.get('ownerType');
+    const ownerId = (body?.ownerId as string) || url.searchParams.get('ownerId');
+
+    if (ownerType === 'product' && ownerId) return ownerId;
+
+    // Legacy fallback
+    const legacyProductId = (body?.productId as string) || url.searchParams.get('productId');
+    return legacyProductId || undefined;
+}
+
 export async function GET(request: Request) {
     try {
         const userId = await getCurrentUserId(request);
@@ -38,7 +54,7 @@ export async function GET(request: Request) {
         }
 
         const url = new URL(request.url);
-        const productId = url.searchParams.get('productId') || undefined;
+        const productId = resolveProductId(url);
 
         const accounts = await getAccounts(userId, productId);
 
@@ -68,16 +84,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const { platform, productId } = await request.json();
-        if (!platform) {
-            return NextResponse.json({ error: 'Platform required' }, { status: 400 });
-        }
+        const body = await request.json();
+        const url = new URL(request.url);
+        const productId = resolveProductId(url, body);
+
+        // Validate platform name
+        const validation = validateConnectSocial({ ...body, productId });
+        if (!validation.success) return validation.response;
+
+        const { platform } = validation.data;
 
         const adapter = getAdapter(platform as SocialPlatform);
-        // Encode productId in state: userId:timestamp or userId:timestamp:productId
-        const state = productId
-            ? `${userId}:${Date.now()}:${productId}`
-            : `${userId}:${Date.now()}`;
+        // Use HMAC-signed state to prevent CSRF
+        const state = createSignedState(userId, productId);
         const authUrl = adapter.getAuthUrl(state);
 
         return NextResponse.json({ authUrl, state });

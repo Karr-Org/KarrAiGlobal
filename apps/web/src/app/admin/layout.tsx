@@ -10,11 +10,20 @@ export default async function AdminLayout({
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // In production, check if user is admin
-    // For now, allow access for development
-    // if (!user) {
-    //   redirect('/auth/login?next=/admin');
-    // }
+    if (!user) {
+        redirect('/auth/login?next=/admin');
+    }
+
+    // Verify super_admin role
+    const { data: creator } = await supabase
+        .from('creator_profiles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+
+    if (!creator || creator.role !== 'super_admin') {
+        redirect('/creator/dashboard');
+    }
 
     return (
         <div className="flex h-screen bg-cream-50">

@@ -1,56 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { requireCreator, getAdmin, withAuth } from '@/lib/auth';
+import { validateCreateProduct } from '@/lib/validations';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
+// GET: List all products (creator/admin only)
 export async function GET(request: NextRequest) {
-    const { data: products, error } = await supabase
-        .from('products')
-        .select(`
-            *,
-            product_knowledge_bases (
-                knowledge_bases (
-                    id,
-                    name
+    return withAuth(async () => {
+        const { user } = await requireCreator();
+        const supabase = getAdmin();
+
+        // Only show products created by this creator (or all for super_admin)
+        const { data: creator } = await supabase
+            .from('creator_profiles')
+            .select('role')
+            .eq('user_id', user.id)
+            .single();
+
+        let query = supabase
+            .from('products')
+            .select(`
+                *,
+                product_knowledge_bases (
+                    knowledge_bases (
+                        id,
+                        name
+                    )
                 )
-            )
-        `)
-        .order('created_at', { ascending: false });
+            `)
+            .order('created_at', { ascending: false });
 
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+        // Non-super_admins only see their own products
+        if (creator?.role !== 'super_admin') {
+            query = query.eq('created_by', user.id);
+        }
 
-    // Transform logic to flatten structure if needed for UI
-    const formattedProducts = products.map((p: any) => ({
-        ...p,
-        knowledge_bases: p.product_knowledge_bases?.map((pkb: any) => pkb.knowledge_bases) || []
-    }));
+        const { data: products, error } = await query;
 
-    return NextResponse.json(formattedProducts);
+        if (error) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        const formattedProducts = (products || []).map((p: any) => ({
+            ...p,
+            knowledge_bases: p.product_knowledge_bases?.map((pkb: any) => pkb.knowledge_bases) || []
+        }));
+
+        return NextResponse.json(formattedProducts);
+    });
 }
 
+// POST: Create product (creator only)
 export async function POST(request: NextRequest) {
-    try {
+    return withAuth(async () => {
+        const { user } = await requireCreator();
+        const supabase = getAdmin();
+
         const body = await request.json();
+
+        // Validate input
+        const validation = validateCreateProduct(body);
+        if (!validation.success) return validation.response;
+
         const {
             name,
             slug,
             domain,
             description,
-            selectedKbIds, // Array of KB IDs
+            selectedKbIds,
             primaryColor,
-            webSources // Array of { domain, displayName, authorityScore }
-        } = body;
+            webSources
+        } = validation.data;
 
-        if (!name || !slug) {
-            return NextResponse.json({ error: 'Name and slug are required' }, { status: 400 });
-        }
-
-        // 1. Create Product
+        // 1. Create Product — assign to current creator
         const { data: product, error: prodError } = await supabase
             .from('products')
             .insert({
@@ -58,9 +78,9 @@ export async function POST(request: NextRequest) {
                 slug,
                 domain: domain || null,
                 description,
-                // knowledge_base_id removed from schema
                 primary_color: primaryColor || '#1a365d',
-                status: 'active'
+                status: 'active',
+                created_by: user.id,
             })
             .select()
             .single();
@@ -81,7 +101,6 @@ export async function POST(request: NextRequest) {
                 .insert(associations);
 
             if (linkError) {
-                // Should we delete product? Maybe just warn.
                 console.error('Failed to link KBs:', linkError);
                 return NextResponse.json({ error: 'Product created but failed to link KBs: ' + linkError.message }, { status: 500 });
             }
@@ -89,7 +108,7 @@ export async function POST(request: NextRequest) {
 
         // 3. Add Web Sources (OKSE)
         if (webSources && Array.isArray(webSources) && webSources.length > 0) {
-            const sourcesToInsert = webSources.map((source: { domain: string; displayName: string; authorityScore: number }) => ({
+            const sourcesToInsert = webSources.map((source: { domain: string; displayName?: string; authorityScore?: number }) => ({
                 product_id: product.id,
                 domain: source.domain,
                 display_name: source.displayName || source.domain,
@@ -108,13 +127,12 @@ export async function POST(request: NextRequest) {
 
             if (sourceError) {
                 console.error('Failed to add web sources:', sourceError);
-                // Don't fail the whole request, just log
             }
         }
 
-        return NextResponse.json({ success: true, product });
+        // Update creator's product count
+        await supabase.rpc('increment_product_count', { creator_user_id: user.id }).catch(() => { });
 
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+        return NextResponse.json({ success: true, product });
+    });
 }

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCreator, getAdmin } from '@/lib/auth';
 
 /**
  * GET /api/admin/document-content
@@ -16,15 +11,17 @@ const supabase = createClient(
  * - type: 'user' (default) or 'knowledge'
  */
 export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url);
-    const documentId = searchParams.get('documentId');
-    const type = searchParams.get('type') || 'user';
-
-    if (!documentId) {
-        return NextResponse.json({ success: false, error: 'documentId is required' }, { status: 400 });
-    }
-
     try {
+        await requireCreator();
+        const supabase = getAdmin();
+
+        const { searchParams } = new URL(request.url);
+        const documentId = searchParams.get('documentId');
+        const type = searchParams.get('type') || 'user';
+
+        if (!documentId) {
+            return NextResponse.json({ success: false, error: 'documentId is required' }, { status: 400 });
+        }
         if (type === 'knowledge') {
             // Handle Knowledge Base documents
             const { data: doc, error: docError } = await supabase

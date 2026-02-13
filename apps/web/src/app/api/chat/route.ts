@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { federatedSearch, buildContextFromResults, RichCitation } from '@/lib/knowledge/federated-search';
 import { evaluateWithCRAG, generateIDontKnow, CRAGResult } from '@/lib/knowledge/crag-evaluator';
 import { okseEngine, FormattedCitation } from '@/lib/okse';
+import { validateChatQuery } from '@/lib/validations';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,20 +14,23 @@ const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
 
 export async function POST(request: NextRequest) {
     try {
+        const body = await request.json();
+
+        // Validate input
+        const validation = validateChatQuery(body);
+        if (!validation.success) return validation.response;
+
         const {
             query,
             productId,
             conversationId,
             userId,
-            useOkse = false,  // NEW: Flag to use OKSE pipeline
-            knowledgeBaseId,  // Required for OKSE
-            forceComplexity,  // Optional: Force a complexity level
-            skipCache,        // Optional: Skip semantic cache
-        } = await request.json();
+            useOkse = false,
+            knowledgeBaseId,
+            forceComplexity,
+            skipCache,
+        } = validation.data;
 
-        if (!query || !productId) {
-            return NextResponse.json({ error: 'Query and productId are required' }, { status: 400 });
-        }
 
         // ============================================================================
         // OKSE MODE: Use the new Omniscient Knowledge Synthesis Engine
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
                 kbId,
                 {
                     userId,
-                    forceComplexity,
+                    forceComplexity: forceComplexity as 'SIMPLE' | 'MODERATE' | 'COMPLEX' | undefined,
                     skipCache: skipCache === true,
                     enableLiveWeb: true, // Live web search enabled!
                 }

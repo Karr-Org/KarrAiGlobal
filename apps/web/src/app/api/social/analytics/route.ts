@@ -1,7 +1,9 @@
 /**
- * Social Analytics API
+ * Social Analytics API (Unified)
  * GET — Fetch post performance data, patterns, and AI recommendations
  * POST — Trigger analytics collection for all published posts
+ * 
+ * Supports both user-level and product-level analytics via ownerType/ownerId params.
  */
 
 import { NextResponse } from 'next/server';
@@ -28,6 +30,16 @@ async function getCurrentUserId(request: Request): Promise<string | null> {
     return null;
 }
 
+/**
+ * Resolve productId from unified owner params or legacy productId param.
+ */
+function resolveProductId(url: URL): string | undefined {
+    const ownerType = url.searchParams.get('ownerType');
+    const ownerId = url.searchParams.get('ownerId');
+    if (ownerType === 'product' && ownerId) return ownerId;
+    return url.searchParams.get('productId') || undefined;
+}
+
 export async function GET(request: Request) {
     try {
         const userId = await getCurrentUserId(request);
@@ -38,6 +50,7 @@ export async function GET(request: Request) {
         const url = new URL(request.url);
         const postId = url.searchParams.get('postId');
         const view = url.searchParams.get('view') || 'overview';
+        const productId = resolveProductId(url);
 
         const supabase = getServiceSupabase();
 
@@ -52,17 +65,24 @@ export async function GET(request: Request) {
         }
 
         if (view === 'patterns') {
-            const { data: patterns } = await supabase
+            let query = supabase
                 .from('content_patterns')
                 .select('*')
                 .eq('user_id', userId)
                 .order('recommendation_score', { ascending: false });
 
+            if (productId) {
+                query = query.eq('product_id', productId);
+            } else {
+                query = query.is('product_id', null);
+            }
+
+            const { data: patterns } = await query;
             return NextResponse.json({ patterns: patterns || [] });
         }
 
-        // Overview: aggregate stats
-        const { data: posts } = await supabase
+        // Overview: aggregate stats — scoped by owner
+        let postsQuery = supabase
             .from('social_posts')
             .select(`
                 id, content, platform, published_at, status,
@@ -72,6 +92,14 @@ export async function GET(request: Request) {
             .eq('status', 'published')
             .order('published_at', { ascending: false })
             .limit(50);
+
+        if (productId) {
+            postsQuery = postsQuery.eq('product_id', productId);
+        } else {
+            postsQuery = postsQuery.is('product_id', null);
+        }
+
+        const { data: posts } = await postsQuery;
 
         const allAnalytics = (posts || []).flatMap((p: Record<string, unknown>) => {
             const analytics = p.social_analytics;

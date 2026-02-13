@@ -123,12 +123,17 @@ export default function NewKnowledgeBasePage() {
                 throw new Error(`A Knowledge Base named "${name.trim()}" already exists. Please choose a different name.`);
             }
 
+            // Get current user for ownership
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Not authenticated');
+
             // 1. Create KB
             const { data: kb, error: kbError } = await supabase
                 .from('knowledge_bases')
                 .insert({
                     name: name.trim(),
-                    description: description.trim()
+                    description: description.trim(),
+                    created_by: user.id,
                 })
                 .select()
                 .single();

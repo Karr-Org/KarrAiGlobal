@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCreator, getAdmin } from '@/lib/auth';
 
 // GET: List knowledge gap suggestions for a product
 export async function GET(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const { searchParams } = new URL(request.url);
         const productId = searchParams.get('productId');
         const status = searchParams.get('status') || 'pending';
@@ -103,6 +100,8 @@ function isValidUUID(str: string): boolean {
 // POST: Approve or reject a suggestion
 export async function POST(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const body = await request.json();
         const { suggestionId, action, adminId, knowledgeBaseIds, notes } = body;
 

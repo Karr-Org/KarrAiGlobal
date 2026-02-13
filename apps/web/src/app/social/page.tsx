@@ -5,6 +5,8 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { PanelLeftClose } from 'lucide-react';
 import PostComposer from '@/components/social/PostComposer';
 import ConnectAccounts from '@/components/social/ConnectAccounts';
+import SocialCalendar from '@/components/social/SocialCalendar';
+import { createUserOwner } from '@/lib/social/owner-context';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================
@@ -722,8 +724,8 @@ function SocialPulseContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const pathname = usePathname();
-    const initialTab = (searchParams.get('tab') as 'analytics' | 'queue' | 'published') || 'analytics';
-    const [activeView, setActiveView] = useState<'analytics' | 'queue' | 'published'>(initialTab);
+    const initialTab = (searchParams.get('tab') as 'analytics' | 'queue' | 'published' | 'calendar') || 'analytics';
+    const [activeView, setActiveView] = useState<'analytics' | 'queue' | 'published' | 'calendar'>(initialTab);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
     const [posts, setPosts] = useState<SocialPost[]>([]);
     const [insights, setInsights] = useState<SocialInsight[]>([]);
@@ -912,6 +914,7 @@ function SocialPulseContent() {
         { id: 'analytics' as const, label: 'Analytics', count: null },
         { id: 'queue' as const, label: 'Queue', count: queuePosts.length },
         { id: 'published' as const, label: 'Posted', count: publishedPosts.length },
+        { id: 'calendar' as const, label: 'Calendar', count: null },
     ];
 
     // URL-based tab routing
@@ -969,7 +972,7 @@ function SocialPulseContent() {
                 <div className="px-2 space-y-1">
                     {/* Personalisation - External Link */}
                     <button
-                        onClick={() => router.push('/personalisation')}
+                        onClick={() => router.push(productSlug ? `/p/${productSlug}/personalisation` : '/personalisation')}
                         className={`${sidebarOpen ? 'w-full py-2.5 px-3' : 'w-10 h-10 mx-auto'} rounded-xl flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} text-sm font-medium transition-all text-sand-600 hover:bg-sand-200/50 hover:text-sand-800 group`}
                         title="Personalisation"
                     >
@@ -1013,7 +1016,7 @@ function SocialPulseContent() {
                         onClick={async () => {
                             const supabase = createClient();
                             await supabase.auth.signOut();
-                            router.push('/signin');
+                            router.push(productSlug ? `/p/${productSlug}/auth` : '/auth/login');
                         }}
                         className={`${sidebarOpen ? 'w-full py-2.5 px-3' : 'w-10 h-10 mx-auto'} rounded-xl text-sand-600 hover:text-sand-800 hover:bg-sand-200/50 flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} text-sm font-medium transition-all`}
                         title="Sign Out"
@@ -1283,6 +1286,13 @@ function SocialPulseContent() {
                             {/* ===== ANALYTICS TAB ===== */}
                             {activeView === 'analytics' && (
                                 <AnalyticsDashboard posts={posts} analytics={analytics} />
+                            )}
+
+                            {/* ===== CALENDAR TAB ===== */}
+                            {activeView === 'calendar' && userId && (
+                                <SocialCalendar
+                                    owner={createUserOwner(userId, productName || 'Personal')}
+                                />
                             )}
                         </>
                     )}

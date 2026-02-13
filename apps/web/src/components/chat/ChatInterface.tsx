@@ -486,9 +486,16 @@ function MessageBubble({ message, onViewPresentation }: { message: Message; onVi
 }
 
 function formatContent(content: string): React.ReactNode {
-    // Simple markdown-like formatting
+    // Simple markdown-like formatting with XSS protection
     return content.split('\n').map((line, i) => {
-        // Bold
+        // Escape HTML entities first to prevent XSS
+        line = line
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        // Then apply safe formatting (bold only)
         line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         // Bullet points
         if (line.startsWith('• ')) {

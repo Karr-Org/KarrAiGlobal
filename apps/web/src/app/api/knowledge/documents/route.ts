@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { requireAuth, getAdmin, withAuth } from '@/lib/auth';
 
-// Initialize Supabase client with service role
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-// GET: List documents in a knowledge base
+// GET: List documents in a knowledge base (authenticated)
 export async function GET(request: NextRequest) {
-    try {
+    return withAuth(async () => {
+        await requireAuth();
+        const supabase = getAdmin();
         const { searchParams } = new URL(request.url);
         const knowledgeBaseId = searchParams.get('knowledgeBaseId');
 
@@ -38,22 +34,16 @@ export async function GET(request: NextRequest) {
             success: true,
             documents: documents || [],
         });
-
-    } catch (error: any) {
-        console.error('Error:', error);
-        return NextResponse.json(
-            { error: error.message || 'Internal server error' },
-            { status: 500 }
-        );
-    }
+    });
 }
 
-// DELETE: Delete a document from knowledge base (Admin only)
+// DELETE: Delete a document from knowledge base (authenticated)
 export async function DELETE(request: NextRequest) {
-    try {
+    return withAuth(async () => {
+        await requireAuth();
+        const supabase = getAdmin();
         const { searchParams } = new URL(request.url);
         const documentId = searchParams.get('documentId');
-        const adminKey = request.headers.get('x-admin-key');
 
         if (!documentId) {
             return NextResponse.json(
@@ -61,10 +51,6 @@ export async function DELETE(request: NextRequest) {
                 { status: 400 }
             );
         }
-
-        // Simple admin verification - in production, use proper auth
-        // For now, we'll check if the user is authenticated and has admin role
-        // You can also use the x-admin-key header for additional security
 
         // Fetch the document first
         const { data: document, error: fetchError } = await supabase
@@ -117,12 +103,5 @@ export async function DELETE(request: NextRequest) {
             message: 'Document deleted successfully',
             chunksDeleted: chunkCount || 0,
         });
-
-    } catch (error: any) {
-        console.error('Error:', error);
-        return NextResponse.json(
-            { error: error.message || 'Internal server error' },
-            { status: 500 }
-        );
-    }
+    });
 }

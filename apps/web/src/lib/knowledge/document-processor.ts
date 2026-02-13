@@ -76,169 +76,37 @@ interface UploadOptions {
 }
 
 export async function processAndUploadDocument({ file, targetType, targetId, metadata }: UploadOptions) {
-    // 1. Text Extraction
+    // 1. Create Document Record FIRST (to track status)
     const fileBuffer = await file.arrayBuffer();
-    let textContent = '';
 
-    console.log(`[Document Processor] Processing file: "${file.name}", type: "${file.type}", size: ${file.size} bytes`);
-
-    // Check for PDF magic bytes (%PDF)
-    const first4Bytes = new Uint8Array(fileBuffer.slice(0, 4));
-    const isPdfByMagic = first4Bytes[0] === 0x25 && first4Bytes[1] === 0x50 && first4Bytes[2] === 0x44 && first4Bytes[3] === 0x46;
-    const isPdf = isPdfByMagic || file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
-
-    if (!isPdf && (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md'))) {
-        textContent = new TextDecoder().decode(fileBuffer);
-    } else if (isPdf) {
-        console.log(`[PDF Extraction] START. Magic: ${isPdfByMagic}, Method verification...`);
-
-        // Method 1: unpdf (Standard Import)
-        try {
-            const pdfBuffer = Buffer.from(fileBuffer);
-            const result = await extractText(pdfBuffer);
-            const rawText = Array.isArray(result.text) ? result.text.join('\n') : (result.text || '');
-
-            if (rawText.length > 50) {
-                textContent = rawText;
-                console.log(`[PDF Extraction] SUCCESS (unpdf): ${textContent.length} chars`);
-            } else {
-                console.log(`[PDF Extraction] unpdf returned ${rawText.length} chars (insufficient)`);
-            }
-        } catch (e: any) {
-            console.error('[PDF Extraction] unpdf failed:', e.message);
-        }
-
-        // Method 2: pdf-parse (Require)
-        if (!textContent || textContent.length < 50) {
-            try {
-                const pdfBuffer = Buffer.from(fileBuffer);
-                const data = await pdfParse(pdfBuffer);
-                if (data.text && data.text.length > 50) {
-                    textContent = data.text;
-                    console.log(`[PDF Extraction] SUCCESS (pdf-parse): ${textContent.length} chars`);
-                } else {
-                    console.log(`[PDF Extraction] pdf-parse returned ${data.text?.length} chars`);
-                }
-            } catch (e: any) {
-                console.error('[PDF Extraction] pdf-parse failed:', e.message);
-            }
-        }
-
-        // Method 3: Python Script
-        if (!textContent || textContent.length < 50) {
-            try {
-                // Determine script path
-                const cwd = process.cwd();
-                const possiblePaths = [
-                    path.join(cwd, 'scripts', 'extract_pdf.py'),
-                    path.join(cwd, 'apps', 'web', 'scripts', 'extract_pdf.py')
-                ];
-
-                const scriptPath = possiblePaths.find(p => fs.existsSync(p));
-
-                if (scriptPath) {
-                    console.log(`[PDF Extraction] Found Python script at: ${scriptPath}`);
-                    const tempPath = path.join(os.tmpdir(), `pdf_${Date.now()}.pdf`);
-                    await writeFileAsync(tempPath, Buffer.from(fileBuffer));
-
-                    try {
-                        const { stdout, stderr } = await execAsync(`python "${scriptPath}" "${tempPath}"`, {
-                            timeout: 30000,
-                            maxBuffer: 10 * 1024 * 1024
-                        });
-
-                        if (stdout && stdout.trim().length > 50) {
-                            textContent = stdout.trim();
-                            console.log(`[PDF Extraction] SUCCESS (Python): ${textContent.length} chars`);
-                        } else if (stderr) {
-                            console.warn('[PDF Extraction] Python stderr:', stderr);
-                        }
-                    } finally {
-                        await unlinkAsync(tempPath).catch(() => { });
-                    }
-                } else {
-                    console.error('[PDF Extraction] Python script not found in:', possiblePaths);
-                }
-            } catch (e: any) {
-                console.error('[PDF Extraction] Python failed:', e.message);
-            }
-        }
-
-        // Method 4: Gemini (Fallback)
-        if (!textContent || textContent.length < 50) {
-            console.log('[PDF Extraction] Falling back to Gemini AI...');
-            try {
-                const base64Pdf = Buffer.from(fileBuffer).toString('base64');
-                const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [
-                                    { text: 'Extract ALL text content from this PDF document. Return ONLY the extracted text.' },
-                                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                                ]
-                            }]
-                        })
-                    }
-                );
-                const aiData = await response.json();
-                const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (aiText && aiText.length > 50) {
-                    textContent = aiText;
-                    console.log(`[PDF Extraction] SUCCESS (Gemini): ${textContent.length} chars`);
-                }
-            } catch (e: any) {
-                console.error('[PDF Extraction] Gemini failed:', e.message);
-            }
-        }
-    } else {
-        textContent = new TextDecoder().decode(fileBuffer);
-    }
-
-    // Validate extracted content
-    if (!textContent || textContent.trim().length < 50) {
-        throw new Error(`Could not extract meaningful text from file. Got ${textContent?.length || 0} chars. For PDFs, ensure the file contains selectable text.`);
-    }
-
-    // Check for binary garbage (if content has too many non-printable chars)
-    const printableRatio = (textContent.match(/[\x20-\x7E\n\r\t]/g)?.length || 0) / textContent.length;
-    if (printableRatio < 0.6) { // Lowered threshold slightly for more tolerance
-        console.warn(`[Document Processor] Warning: Content appears to be binary (${(printableRatio * 100).toFixed(0)}% printable). This might be a false positive for some languages.`);
-    }
-
-    console.log(`[Document Processor] Successfully extracted ${textContent.length} chars from ${file.name}`);
-
-    // 2. Create Document Record
     let docId: string;
     let chunksTable: string;
     let docTable: string;
     let docIdField: string;
 
+    const initialStatus = 'processing';
+    const initialMetadata = metadata || {};
+
     if (targetType === 'user') {
         docTable = 'user_documents';
         chunksTable = 'user_knowledge_chunks';
-        docIdField = 'document_id'; // Match DB schema (verified via API)
-
-        let kbId = targetId;
+        docIdField = 'document_id';
 
         const { data: doc, error } = await supabase
             .from('user_documents')
             .insert({
-                user_knowledge_base_id: kbId,
+                user_knowledge_base_id: targetId,
                 title: file.name,
                 file_path: file.name,
                 file_type: file.type,
                 file_size_bytes: file.size,
-                status: 'processing',
-                metadata: metadata || {}
+                status: initialStatus,
+                metadata: initialMetadata
             })
             .select()
             .single();
 
-        if (error) throw new Error(`Failed to create document: ${error.message}`);
+        if (error) throw new Error(`Failed to create document record: ${error.message}`);
         docId = doc.id;
 
     } else {
@@ -252,32 +120,171 @@ export async function processAndUploadDocument({ file, targetType, targetId, met
             .insert({
                 knowledge_base_id: targetId,
                 title: file.name,
-                file_path: file.name,
+                file_path: file.name, // In a real app, upload to storage bucket
                 file_type: file.type,
                 file_size_bytes: file.size,
-                status: 'processing',
-                metadata: metadata || {}
+                status: initialStatus,
+                authority_level: metadata?.authorityLevel || 5,
+                document_type: metadata?.documentType || 'other',
+                metadata: initialMetadata
             })
-            .select()
+            .select() // Need ID
             .single();
 
-        if (error) throw new Error(`Failed to create global document: ${error.message}`);
+        if (error) throw new Error(`Failed to create global document record: ${error.message}`);
         docId = doc.id;
     }
 
-    // 3. Chunk and Embed (OmniForge Phase 1: With Contextual Summarization)
-    const chunks = chunkText(textContent);
-    let successCount = 0;
-    let firstChunkEmbedding: number[] | null = null;
-    const contentSample = textContent.slice(0, 1500);
-
-    // OmniForge: Enable contextual summaries by default for global docs, optional for user docs
-    const shouldGenerateContext = metadata?.enableContextualSummary !== false && targetType === 'global';
-    let previousContextSummary = '';
-
-    console.log(`[DocumentProcessor] Processing ${chunks.length} chunks, contextual=${shouldGenerateContext}`);
-
     try {
+        console.log(`[Document Processor] Created document record ${docId}. Starting processing...`);
+
+        // 2. Text Extraction
+        let textContent = '';
+        console.log(`[Document Processor] Processing file: "${file.name}", type: "${file.type}", size: ${file.size} bytes`);
+
+        // Check for PDF magic bytes (%PDF)
+        const first4Bytes = new Uint8Array(fileBuffer.slice(0, 4));
+        const isPdfByMagic = first4Bytes[0] === 0x25 && first4Bytes[1] === 0x50 && first4Bytes[2] === 0x44 && first4Bytes[3] === 0x46;
+        const isPdf = isPdfByMagic || file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+
+        if (!isPdf && (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md'))) {
+            textContent = new TextDecoder().decode(fileBuffer);
+        } else if (isPdf) {
+            console.log(`[PDF Extraction] START. Magic: ${isPdfByMagic}, Method verification...`);
+
+            // Method 1: unpdf (Standard Import)
+            try {
+                const pdfBuffer = Buffer.from(fileBuffer);
+                const result = await extractText(pdfBuffer);
+                const rawText = Array.isArray(result.text) ? result.text.join('\n') : (result.text || '');
+
+                if (rawText.length > 50) {
+                    textContent = rawText;
+                    console.log(`[PDF Extraction] SUCCESS (unpdf): ${textContent.length} chars`);
+                } else {
+                    console.log(`[PDF Extraction] unpdf returned ${rawText.length} chars (insufficient)`);
+                }
+            } catch (e: any) {
+                console.error('[PDF Extraction] unpdf failed:', e.message);
+            }
+
+            // Method 2: pdf-parse (Require)
+            if (!textContent || textContent.length < 50) {
+                try {
+                    const pdfBuffer = Buffer.from(fileBuffer);
+                    const data = await pdfParse(pdfBuffer);
+                    if (data.text && data.text.length > 50) {
+                        textContent = data.text;
+                        console.log(`[PDF Extraction] SUCCESS (pdf-parse): ${textContent.length} chars`);
+                    } else {
+                        console.log(`[PDF Extraction] pdf-parse returned ${data.text?.length} chars`);
+                    }
+                } catch (e: any) {
+                    console.error('[PDF Extraction] pdf-parse failed:', e.message);
+                }
+            }
+
+            // Method 3: Python Script
+            if (!textContent || textContent.length < 50) {
+                try {
+                    // Determine script path
+                    const cwd = process.cwd();
+                    const possiblePaths = [
+                        path.join(cwd, 'scripts', 'extract_pdf.py'),
+                        path.join(cwd, 'apps', 'web', 'scripts', 'extract_pdf.py')
+                    ];
+
+                    const scriptPath = possiblePaths.find(p => fs.existsSync(p));
+
+                    if (scriptPath) {
+                        console.log(`[PDF Extraction] Found Python script at: ${scriptPath}`);
+                        const tempPath = path.join(os.tmpdir(), `pdf_${Date.now()}.pdf`);
+                        await writeFileAsync(tempPath, Buffer.from(fileBuffer));
+
+                        try {
+                            const { stdout, stderr } = await execAsync(`python "${scriptPath}" "${tempPath}"`, {
+                                timeout: 30000,
+                                maxBuffer: 10 * 1024 * 1024
+                            });
+
+                            if (stdout && stdout.trim().length > 50) {
+                                textContent = stdout.trim();
+                                console.log(`[PDF Extraction] SUCCESS (Python): ${textContent.length} chars`);
+                            } else if (stderr) {
+                                console.warn('[PDF Extraction] Python stderr:', stderr);
+                            }
+                        } finally {
+                            await unlinkAsync(tempPath).catch(() => { });
+                        }
+                    } else {
+                        console.error('[PDF Extraction] Python script not found in:', possiblePaths);
+                    }
+                } catch (e: any) {
+                    console.error('[PDF Extraction] Python failed:', e.message);
+                }
+            }
+
+            // Method 4: Gemini (Fallback)
+            if (!textContent || textContent.length < 50) {
+                console.log('[PDF Extraction] Falling back to Gemini AI...');
+                try {
+                    const base64Pdf = Buffer.from(fileBuffer).toString('base64');
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{
+                                    parts: [
+                                        { text: 'Extract ALL text content from this PDF document. Return ONLY the extracted text.' },
+                                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                                    ]
+                                }]
+                            })
+                        }
+                    );
+                    const aiData = await response.json();
+                    const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (aiText && aiText.length > 50) {
+                        textContent = aiText;
+                        console.log(`[PDF Extraction] SUCCESS (Gemini): ${textContent.length} chars`);
+                    }
+                } catch (e: any) {
+                    console.error('[PDF Extraction] Gemini failed:', e.message);
+                }
+            }
+        } else {
+            textContent = new TextDecoder().decode(fileBuffer);
+        }
+
+        // Validate extracted content
+        if (!textContent || textContent.trim().length < 50) {
+            throw new Error(`Could not extract meaningful text from file. Got ${textContent?.length || 0} chars. For PDFs, ensure the file contains selectable text.`);
+        }
+
+        // Check for binary garbage (if content has too many non-printable chars)
+        const printableRatio = (textContent.match(/[\x20-\x7E\n\r\t]/g)?.length || 0) / textContent.length;
+        if (printableRatio < 0.6) { // Lowered threshold slightly for more tolerance
+            console.warn(`[Document Processor] Warning: Content appears to be binary (${(printableRatio * 100).toFixed(0)}% printable). This might be a false positive for some languages.`);
+        }
+
+        console.log(`[Document Processor] Successfully extracted ${textContent.length} chars from ${file.name}`);
+
+
+        // 3. Chunk and Embed (OmniForge Phase 1: With Contextual Summarization)
+        const chunks = chunkText(textContent);
+        let successCount = 0;
+        let firstChunkEmbedding: number[] | null = null;
+        const contentSample = textContent.slice(0, 1500);
+
+        // OmniForge: Enable contextual summaries by default for global docs, optional for user docs
+        const shouldGenerateContext = metadata?.enableContextualSummary !== false && targetType === 'global';
+        let previousContextSummary = '';
+
+        console.log(`[DocumentProcessor] Processing ${chunks.length} chunks, contextual=${shouldGenerateContext}`);
+
+
         for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];
             if (chunk.trim().length < 20) continue;

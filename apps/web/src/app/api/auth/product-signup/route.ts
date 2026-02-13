@@ -1,24 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireAuth, getAdmin } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
     try {
-        const { userId, productId, displayName } = await request.json();
+        // Verify the caller is authenticated
+        const user = await requireAuth();
+        const admin = getAdmin();
 
-        if (!userId || !productId) {
+        const { productId, displayName } = await request.json();
+
+        if (!productId) {
             return NextResponse.json(
-                { error: 'userId and productId are required' },
+                { error: 'productId is required' },
                 { status: 400 }
             );
         }
 
         // Check if product exists
-        const { data: product, error: productError } = await supabase
+        const { data: product, error: productError } = await admin
             .from('products')
             .select('id, name')
             .eq('id', productId)
@@ -32,10 +31,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Check if user already has access to this product
-        const { data: existing } = await supabase
+        const { data: existing } = await admin
             .from('product_users')
             .select('id')
-            .eq('user_id', userId)
+            .eq('user_id', user.id)
             .eq('product_id', productId)
             .single();
 
@@ -47,11 +46,11 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Create product user
-        const { data: productUser, error: puError } = await supabase
+        // Create product user — userId comes from verified session
+        const { data: productUser, error: puError } = await admin
             .from('product_users')
             .insert({
-                user_id: userId,
+                user_id: user.id,
                 product_id: productId,
                 display_name: displayName || 'User',
                 role: 'user',
@@ -68,7 +67,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Create default knowledge base for user
-        const { data: kb, error: kbError } = await supabase
+        const { data: kb, error: kbError } = await admin
             .from('user_knowledge_bases')
             .insert({
                 product_user_id: productUser.id,
@@ -90,11 +89,10 @@ export async function POST(request: NextRequest) {
             message: 'Account created successfully!'
         });
 
-    } catch (error: any) {
-        console.error('Product signup error:', error);
-        return NextResponse.json(
-            { error: error.message || 'Internal server error' },
-            { status: 500 }
-        );
+    } catch (e) {
+        if (e instanceof NextResponse) return e;
+        const message = e instanceof Error ? e.message : 'Internal server error';
+        console.error('Product signup error:', message);
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

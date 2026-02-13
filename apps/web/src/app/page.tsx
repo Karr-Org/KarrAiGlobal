@@ -25,22 +25,22 @@ export default function HomePage() {
                             <span className="text-xl font-bold text-gray-900">Karr AI Global</span>
                         </div>
                         <div className="hidden md:flex items-center gap-8">
+                            <Link href="/marketplace" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
+                                Marketplace
+                            </Link>
                             <Link href="#features" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
                                 Features
-                            </Link>
-                            <Link href="#products" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
-                                Products
                             </Link>
                             <Link href="#pricing" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
                                 Pricing
                             </Link>
                         </div>
                         <div className="flex items-center gap-4">
-                            {/* <Link href="/auth/login" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
-                                Sign In
-                            </Link> */}
-                            <Link href="#products" className="btn-primary">
-                                Get Started
+                            <Link href="/creator/login" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
+                                Creator Login
+                            </Link>
+                            <Link href="/creator/signup" className="btn-primary">
+                                Become a Creator
                             </Link>
                         </div>
                     </div>
@@ -68,12 +68,12 @@ export default function HomePage() {
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                        <Link href="#products" className="btn-primary text-lg px-8 py-3">
-                            Explore Solutions
+                        <Link href="/marketplace" className="btn-primary text-lg px-8 py-3">
+                            Explore Marketplace
                             <ArrowRight className="w-5 h-5 ml-2" />
                         </Link>
-                        <Link href="#demo" className="btn-outline text-lg px-8 py-3">
-                            Watch Demo
+                        <Link href="/creator/signup" className="btn-outline text-lg px-8 py-3">
+                            Build Your Own AI
                         </Link>
                     </div>
 
@@ -188,10 +188,16 @@ export default function HomePage() {
                     <p className="text-lg text-primary-100 mb-10 max-w-2xl mx-auto">
                         Join thousands of professionals who save hours every day with Karr AI.
                     </p>
-                    <Link href="#products" className="inline-flex items-center gap-2 bg-white text-primary-700 px-8 py-3 rounded-lg font-semibold hover:bg-primary-50 transition-colors">
-                        Browse Products
-                        <ArrowRight className="w-5 h-5" />
-                    </Link>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <Link href="/marketplace" className="inline-flex items-center gap-2 bg-white text-primary-700 px-8 py-3 rounded-lg font-semibold hover:bg-primary-50 transition-colors">
+                            Browse Products
+                            <ArrowRight className="w-5 h-5" />
+                        </Link>
+                        <Link href="/creator/signup" className="inline-flex items-center gap-2 border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white/10 transition-colors">
+                            Start Creating
+                            <ArrowRight className="w-5 h-5" />
+                        </Link>
+                    </div>
                 </div>
             </section>
 

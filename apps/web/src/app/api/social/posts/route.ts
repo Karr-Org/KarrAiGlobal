@@ -1,8 +1,11 @@
 /**
- * Social Posts API
- * GET — List posts with filters
- * POST — Create a new draft
+ * Social Posts API (Unified)
+ * GET — List posts with filters (scoped by ownerType/ownerId)
+ * POST — Create a new draft (with optional product scoping)
  * PATCH — Update a post (edit content, schedule, etc.)
+ * DELETE — Delete a post
+ * 
+ * Supports both user-level and product-level posts via ownerType/ownerId params.
  */
 
 import { NextResponse } from 'next/server';
@@ -21,6 +24,22 @@ async function getCurrentUserId(request: Request): Promise<string | null> {
     return null;
 }
 
+/**
+ * Resolve productId from unified owner params.
+ * If ownerType=product, ownerId is the productId.
+ * Falls back to legacy productId param for backward compatibility.
+ */
+function resolveProductId(url: URL, body?: Record<string, unknown>): string | undefined {
+    const ownerType = (body?.ownerType as string) || url.searchParams.get('ownerType');
+    const ownerId = (body?.ownerId as string) || url.searchParams.get('ownerId');
+
+    if (ownerType === 'product' && ownerId) return ownerId;
+
+    // Legacy fallback
+    const legacyProductId = (body?.productId as string) || url.searchParams.get('productId');
+    return legacyProductId || undefined;
+}
+
 export async function GET(request: Request) {
     try {
         const userId = await getCurrentUserId(request);
@@ -33,8 +52,9 @@ export async function GET(request: Request) {
         const platform = url.searchParams.get('platform') || undefined;
         const limit = parseInt(url.searchParams.get('limit') || '20');
         const offset = parseInt(url.searchParams.get('offset') || '0');
+        const productId = resolveProductId(url);
 
-        const result = await getPosts(userId, { status, platform, limit, offset });
+        const result = await getPosts(userId, { status, platform, limit, offset, productId });
 
         return NextResponse.json(result);
     } catch (error) {
@@ -52,6 +72,8 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { content, platform, hashtags, scheduledAt, socialAccountId, mediaUrls } = body;
+        const url = new URL(request.url);
+        const productId = resolveProductId(url, body);
 
         if (!content || !platform) {
             return NextResponse.json({ error: 'Content and platform required' }, { status: 400 });
@@ -63,6 +85,7 @@ export async function POST(request: Request) {
             scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
             socialAccountId,
             sourceType: 'manual',
+            productId,
         });
 
         return NextResponse.json({ post }, { status: 201 });
@@ -80,7 +103,7 @@ export async function PATCH(request: Request) {
         }
 
         const body = await request.json();
-        const { postId, ...updates } = body;
+        const { postId, ownerType, ownerId, ...updates } = body;
 
         if (!postId) {
             return NextResponse.json({ error: 'Post ID required' }, { status: 400 });
@@ -91,5 +114,37 @@ export async function PATCH(request: Request) {
     } catch (error) {
         console.error('[Posts API] Update error:', error);
         return NextResponse.json({ error: 'Failed to update post' }, { status: 500 });
+    }
+}
+
+export async function DELETE(request: Request) {
+    try {
+        const userId = await getCurrentUserId(request);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const { postId } = await request.json();
+        if (!postId) {
+            return NextResponse.json({ error: 'Post ID required' }, { status: 400 });
+        }
+
+        const { createClient: createServiceClient } = await import('@supabase/supabase-js');
+        const supabase = createServiceClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+
+        const { error } = await supabase
+            .from('social_posts')
+            .delete()
+            .eq('id', postId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('[Posts API] Delete error:', error);
+        return NextResponse.json({ error: 'Failed to delete post' }, { status: 500 });
     }
 }

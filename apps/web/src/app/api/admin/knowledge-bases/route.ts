@@ -1,11 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCreator, getAdmin } from '@/lib/auth';
 
 /**
  * GET /api/admin/knowledge-bases
@@ -13,14 +8,16 @@ const supabase = createClient(
  * Uses product_knowledge_bases junction table since KBs are shared.
  */
 export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url);
-    const productId = searchParams.get('productId');
-
-    if (!productId) {
-        return NextResponse.json({ error: 'productId is required' }, { status: 400 });
-    }
-
     try {
+        await requireCreator();
+        const supabase = getAdmin();
+
+        const { searchParams } = new URL(request.url);
+        const productId = searchParams.get('productId');
+
+        if (!productId) {
+            return NextResponse.json({ error: 'productId is required' }, { status: 400 });
+        }
         // Query through junction table: product_knowledge_bases links products to KBs
         const { data: junctionData, error: junctionError } = await supabase
             .from('product_knowledge_bases')

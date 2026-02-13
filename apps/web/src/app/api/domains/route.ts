@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireProductOwner, getAdmin } from '@/lib/auth';
 
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
@@ -18,6 +13,9 @@ export async function POST(request: NextRequest) {
         if (!domain || !productId) {
             return NextResponse.json({ error: 'Domain and productId required' }, { status: 400 });
         }
+
+        // Verify the caller owns this product
+        await requireProductOwner(productId);
 
         if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
             return NextResponse.json({
@@ -44,9 +42,7 @@ export async function POST(request: NextRequest) {
         const vercelData = await vercelRes.json();
 
         if (!vercelRes.ok) {
-            // Check if domain already exists (not an error)
             if (vercelData.error?.code === 'domain_already_in_use') {
-                // Domain exists, check if it's ours
                 return NextResponse.json({
                     success: true,
                     message: 'Domain already configured',
@@ -62,7 +58,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Update product in database
-        await supabase
+        const admin = getAdmin();
+        await admin
             .from('products')
             .update({ domain: cleanDomain })
             .eq('id', productId);
@@ -75,9 +72,11 @@ export async function POST(request: NextRequest) {
             status: vercelData.verified ? 'active' : 'pending_verification'
         });
 
-    } catch (error: any) {
-        console.error('Add domain error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (e) {
+        if (e instanceof NextResponse) return e;
+        const message = e instanceof Error ? e.message : 'Internal server error';
+        console.error('Add domain error:', message);
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
 
@@ -85,10 +84,14 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
     try {
         const domain = request.nextUrl.searchParams.get('domain');
+        const productId = request.nextUrl.searchParams.get('productId');
 
-        if (!domain) {
-            return NextResponse.json({ error: 'Domain required' }, { status: 400 });
+        if (!domain || !productId) {
+            return NextResponse.json({ error: 'domain and productId required' }, { status: 400 });
         }
+
+        // Verify the caller owns this product
+        await requireProductOwner(productId);
 
         if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
             return NextResponse.json({
@@ -99,7 +102,6 @@ export async function GET(request: NextRequest) {
 
         const cleanDomain = domain.trim().toLowerCase();
 
-        // Get domain status from Vercel
         const vercelUrl = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${cleanDomain}${VERCEL_TEAM_ID ? `?teamId=${VERCEL_TEAM_ID}` : ''}`;
 
         const vercelRes = await fetch(vercelUrl, {
@@ -131,9 +133,11 @@ export async function GET(request: NextRequest) {
                 : 'Domain added but DNS verification pending'
         });
 
-    } catch (error: any) {
-        console.error('Check domain error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (e) {
+        if (e instanceof NextResponse) return e;
+        const message = e instanceof Error ? e.message : 'Internal server error';
+        console.error('Check domain error:', message);
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
 
@@ -143,18 +147,21 @@ export async function DELETE(request: NextRequest) {
         const domain = request.nextUrl.searchParams.get('domain');
         const productId = request.nextUrl.searchParams.get('productId');
 
-        if (!domain) {
-            return NextResponse.json({ error: 'Domain required' }, { status: 400 });
+        if (!domain || !productId) {
+            return NextResponse.json({ error: 'domain and productId required' }, { status: 400 });
         }
+
+        // Verify the caller owns this product
+        await requireProductOwner(productId);
+
+        const admin = getAdmin();
 
         if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
             // If Vercel not configured, just remove from DB
-            if (productId) {
-                await supabase
-                    .from('products')
-                    .update({ domain: null })
-                    .eq('id', productId);
-            }
+            await admin
+                .from('products')
+                .update({ domain: null })
+                .eq('id', productId);
             return NextResponse.json({ success: true, message: 'Domain removed from database' });
         }
 
@@ -171,20 +178,20 @@ export async function DELETE(request: NextRequest) {
         });
 
         // Update product in database
-        if (productId) {
-            await supabase
-                .from('products')
-                .update({ domain: null })
-                .eq('id', productId);
-        }
+        await admin
+            .from('products')
+            .update({ domain: null })
+            .eq('id', productId);
 
         return NextResponse.json({
             success: true,
             message: 'Domain removed successfully'
         });
 
-    } catch (error: any) {
-        console.error('Remove domain error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (e) {
+        if (e instanceof NextResponse) return e;
+        const message = e instanceof Error ? e.message : 'Internal server error';
+        console.error('Remove domain error:', message);
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

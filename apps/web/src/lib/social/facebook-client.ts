@@ -63,9 +63,8 @@ export function getFacebookAuthUrl(state?: string): string {
         'public_profile',
         'email',
         'pages_show_list',        // List user's pages
+        'pages_manage_posts',      // Post to pages
         'pages_read_engagement',   // Read page post insights
-        // NOTE: 'pages_manage_posts' removed — requires App Review for Advanced Access.
-        // Add it back after passing App Review to enable posting to Pages.
     ].join(',');
 
     const params = new URLSearchParams({

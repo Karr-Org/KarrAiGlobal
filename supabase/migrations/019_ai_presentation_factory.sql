@@ -192,30 +192,41 @@ ALTER TABLE layout_performance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE image_prompt_performance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prompt_optimization_rules ENABLE ROW LEVEL SECURITY;
 -- Design tokens are readable by all product users
+DROP POLICY IF EXISTS "Design tokens are viewable by product users" ON product_design_tokens;
 CREATE POLICY "Design tokens are viewable by product users" ON product_design_tokens FOR
 SELECT USING (true);
+DROP POLICY IF EXISTS "Design tokens are manageable by admins" ON product_design_tokens;
 CREATE POLICY "Design tokens are manageable by admins" ON product_design_tokens FOR ALL USING (true);
 -- In production, check admin role
 -- Templates are readable by all
+DROP POLICY IF EXISTS "Templates are viewable by all" ON presentation_templates;
 CREATE POLICY "Templates are viewable by all" ON presentation_templates FOR
 SELECT USING (true);
 -- Presentations are owned by users
+DROP POLICY IF EXISTS "Users can view own presentations" ON presentations;
 CREATE POLICY "Users can view own presentations" ON presentations FOR
 SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create presentations" ON presentations;
 CREATE POLICY "Users can create presentations" ON presentations FOR
 INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own presentations" ON presentations;
 CREATE POLICY "Users can update own presentations" ON presentations FOR
 UPDATE USING (auth.uid() = user_id);
 -- Edits are owned by users
+DROP POLICY IF EXISTS "Users can view own edits" ON presentation_edits;
 CREATE POLICY "Users can view own edits" ON presentation_edits FOR
 SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create edits" ON presentation_edits;
 CREATE POLICY "Users can create edits" ON presentation_edits FOR
 INSERT WITH CHECK (auth.uid() = user_id);
 -- Performance tables are system-managed
+DROP POLICY IF EXISTS "Layout performance readable by all" ON layout_performance;
 CREATE POLICY "Layout performance readable by all" ON layout_performance FOR
 SELECT USING (true);
+DROP POLICY IF EXISTS "Image prompt performance readable by all" ON image_prompt_performance;
 CREATE POLICY "Image prompt performance readable by all" ON image_prompt_performance FOR
 SELECT USING (true);
+DROP POLICY IF EXISTS "Prompt rules readable by all" ON prompt_optimization_rules;
 CREATE POLICY "Prompt rules readable by all" ON prompt_optimization_rules FOR
 SELECT USING (true);
 -- =====================================================

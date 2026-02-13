@@ -1,6 +1,9 @@
 /**
- * Social Publish API
+ * Social Publish API (Unified)
  * POST — Publish a post now to the connected platform
+ * 
+ * Works for both user-level and product-level posts. The post itself already
+ * has user_id and product_id, so no additional owner params needed here.
  */
 
 import { NextResponse } from 'next/server';

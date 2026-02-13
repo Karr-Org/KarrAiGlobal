@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Loader2, Sparkles, ArrowRight, Mail, Lock, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 
 interface Product {
     id: string;
@@ -256,6 +257,18 @@ export default function ProductAuthPage({ params }: { params: { slug: string } }
                             </div>
                         )}
 
+                        {/* Google OAuth */}
+                        <GoogleAuthButton
+                            redirectTo={`/p/${params.slug}/dashboard`}
+                            label={mode === 'login' ? 'Continue with Google' : 'Sign up with Google'}
+                            variant="dark"
+                            onError={(msg) => setError(msg)}
+                            onLoadingChange={(l) => setAuthLoading(l)}
+                            disabled={authLoading}
+                        />
+
+                        <AuthDivider text={mode === 'login' ? 'or sign in with email' : 'or sign up with email'} variant="dark" />
+
                         <form onSubmit={handleSubmit} className="space-y-5">
                             {mode === 'signup' && (
                                 <div>
@@ -362,6 +375,6 @@ export default function ProductAuthPage({ params }: { params: { slug: string } }
                     </p>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

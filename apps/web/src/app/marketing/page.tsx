@@ -10,13 +10,11 @@ import {
     Share2,
     BarChart3,
     Calendar,
-    Brain,
     ChevronLeft,
     Sparkles,
     Target,
     TrendingUp,
     Menu,
-    X,
     Link2
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
@@ -28,6 +26,8 @@ import BlogEditor from '@/components/marketing/BlogEditor';
 import SocialPostGenerator from '@/components/marketing/SocialPostGenerator';
 import MarketingDashboard from '@/components/marketing/MarketingDashboard';
 import ProductSocialAccounts from '@/components/marketing/ProductSocialAccounts';
+import SocialCalendar from '@/components/social/SocialCalendar';
+import { createProductOwner } from '@/lib/social/owner-context';
 
 type MarketingTab = 'dashboard' | 'accounts' | 'profile' | 'ideas' | 'blog' | 'social' | 'calendar';
 
@@ -48,6 +48,7 @@ function MarketingPageContent() {
     );
 
     const [loading, setLoading] = useState(true);
+    const [userId, setUserId] = useState<string | null>(null);
     const [productId, setProductId] = useState<string | null>(null);
     const [productName, setProductName] = useState<string>('');
     const [productSlug, setProductSlug] = useState<string>('');
@@ -69,9 +70,10 @@ function MarketingPageContent() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
-                router.push('/login');
+                router.push(productSlug ? `/p/${productSlug}/auth` : '/auth/login');
                 return;
             }
+            setUserId(user.id);
 
             // Check if productId is passed in URL (admin-level access)
             const urlProductId = searchParams.get('productId');
@@ -356,158 +358,13 @@ function MarketingPageContent() {
                     )}
 
                     {/* Calendar Tab */}
-                    {activeTab === 'calendar' && (
-                        <ContentCalendarView productId={productId} />
+                    {activeTab === 'calendar' && productId && userId && (
+                        <SocialCalendar
+                            owner={createProductOwner(productId, userId, productSlug || productId, productName)}
+                        />
                     )}
                 </div>
             </main>
-        </div>
-    );
-}
-
-// Content Calendar Component (simplified)
-function ContentCalendarView({ productId }: { productId: string }) {
-    const [entries, setEntries] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [currentMonth, setCurrentMonth] = useState(new Date());
-
-    useEffect(() => {
-        fetchCalendar();
-    }, [productId, currentMonth]);
-
-    const fetchCalendar = async () => {
-        try {
-            const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-            const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-
-            const res = await fetch(
-                `/api/marketing/calendar?product_id=${productId}&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
-            );
-            const data = await res.json();
-            setEntries(data.entries || []);
-        } catch (error) {
-            console.error('Error fetching calendar:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const autoSchedule = async () => {
-        try {
-            const res = await fetch('/api/marketing/calendar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'auto_schedule',
-                    product_id: productId,
-                    days_ahead: 14
-                })
-            });
-            const data = await res.json();
-            if (data.entries) {
-                setEntries([...entries, ...data.entries]);
-            }
-        } catch (error) {
-            console.error('Error auto-scheduling:', error);
-        }
-    };
-
-    // Generate calendar days
-    const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
-    const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
-    const days = [];
-
-    // Empty cells for days before the first of the month
-    for (let i = 0; i < firstDayOfMonth; i++) {
-        days.push(<div key={`empty-${i}`} className="h-24 bg-sand-50/50"></div>);
-    }
-
-    // Days of the month
-    for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const dayEntries = entries.filter(e => e.entry_date === dateStr);
-        const isToday = new Date().toISOString().split('T')[0] === dateStr;
-
-        days.push(
-            <div
-                key={day}
-                className={`h-24 border border-sand-100 p-2 ${isToday ? 'bg-terracotta-50 border-terracotta-200' : 'bg-white'} hover:bg-sand-50 transition-colors`}
-            >
-                <div className={`text-sm font-medium ${isToday ? 'text-terracotta-700' : 'text-sand-600'}`}>{day}</div>
-                <div className="mt-1 space-y-1 overflow-hidden">
-                    {dayEntries.slice(0, 2).map((entry, i) => (
-                        <div
-                            key={i}
-                            className={`text-xs px-1.5 py-0.5 rounded truncate ${entry.entry_type === 'blog' ? 'bg-orange-100 text-orange-700' :
-                                'bg-sky-100 text-sky-700'
-                                }`}
-                        >
-                            {entry.title}
-                        </div>
-                    ))}
-                    {dayEntries.length > 2 && (
-                        <div className="text-[10px] text-sand-400">+{dayEntries.length - 2} more</div>
-                    )}
-                </div>
-            </div>
-        );
-    }
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center p-12">
-                <div className="w-6 h-6 border-2 border-sand-200 border-t-terracotta-500 rounded-full animate-spin"></div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden">
-            {/* Calendar Header */}
-            <div className="px-6 py-4 border-b border-sand-100 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-                        className="p-2 hover:bg-sand-100 rounded-lg"
-                        aria-label="Previous month"
-                        title="Previous month"
-                    >
-                        <ChevronLeft className="w-5 h-5 text-sand-600" />
-                    </button>
-                    <h2 className="text-lg font-semibold text-sand-800">
-                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                    </h2>
-                    <button
-                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-                        className="p-2 hover:bg-sand-100 rounded-lg rotate-180"
-                        aria-label="Next month"
-                        title="Next month"
-                    >
-                        <ChevronLeft className="w-5 h-5 text-sand-600" />
-                    </button>
-                </div>
-                <button
-                    onClick={autoSchedule}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white rounded-xl text-sm font-medium transition-all"
-                >
-                    <Sparkles className="w-4 h-4" />
-                    Auto-Schedule
-                </button>
-            </div>
-
-            {/* Day Headers */}
-            <div className="grid grid-cols-7 border-b border-sand-100">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                    <div key={day} className="py-2 text-center text-sm font-medium text-sand-500 bg-sand-50">
-                        {day}
-                    </div>
-                ))}
-            </div>
-
-            {/* Calendar Grid */}
-            <div className="grid grid-cols-7">
-                {days}
-            </div>
         </div>
     );
 }

@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCreator, getAdmin } from '@/lib/auth';
 
 // GET: List knowledge sources for a product
 export async function GET(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const { searchParams } = new URL(request.url);
         const productId = searchParams.get('productId');
 
@@ -52,6 +49,8 @@ export async function GET(request: NextRequest) {
 // POST: Add a new knowledge source
 export async function POST(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const body = await request.json();
         const {
             productId,
@@ -144,6 +143,8 @@ export async function POST(request: NextRequest) {
 // PATCH: Update a knowledge source (toggle active, update config)
 export async function PATCH(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const body = await request.json();
         const { sourceId, isActive, trustLevel, config, name, description } = body;
 
@@ -197,6 +198,8 @@ export async function PATCH(request: NextRequest) {
 // DELETE: Remove a knowledge source
 export async function DELETE(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const body = await request.json();
         const { sourceId } = body;
 

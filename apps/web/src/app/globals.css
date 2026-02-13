@@ -5,9 +5,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --color-primary: 12 74 110;
-  --color-secondary: 13 148 136;
-  --color-accent: 245 158 11;
+  --color-primary: 196 113 91;
+  --color-secondary: 168 142 122;
+  --color-accent: 196 113 91;
+  --color-surface: #faf9f7;
+  --color-surface-alt: #f4f1ed;
+  --color-border: #e8e4df;
+  --color-text: #2d2d2d;
+  --color-text-secondary: #8b8b8b;
+  --color-warm-dark: #1a1a1a;
 }
 
 /* Base styles */
@@ -29,35 +35,70 @@
 /* Component styles */
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply btn text-white;
+    background-color: #c4715b;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: #b3624d;
   }
 
   .btn-secondary {
-    @apply btn bg-secondary-600 text-white hover:bg-secondary-700 focus:ring-secondary-500;
+    @apply btn text-white;
+    background-color: #a88e7a;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #97806d;
   }
 
   .btn-outline {
-    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-primary-500;
+    @apply btn bg-transparent border text-[#2d2d2d];
+    border-color: #e8e4df;
+  }
+
+  .btn-outline:hover:not(:disabled) {
+    background-color: #f4f1ed;
   }
 
   .btn-ghost {
-    @apply btn text-gray-600 hover:bg-gray-100 focus:ring-gray-500;
+    @apply btn text-[#8b8b8b];
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: #f4f1ed;
+    color: #2d2d2d;
   }
 
   .input {
-    @apply block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:bg-gray-100 disabled:cursor-not-allowed;
+    @apply block w-full rounded-lg px-4 py-2.5 text-sm placeholder-[#b5b0a9] disabled:cursor-not-allowed;
+    color: #2d2d2d;
+    border: 1px solid #e8e4df;
+    background: #fff;
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: #c4715b;
+    box-shadow: 0 0 0 2px rgba(196, 113, 91, 0.12);
+  }
+
+  .input:disabled {
+    background: #f4f1ed;
   }
 
   .card {
-    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+    @apply bg-white rounded-lg;
+    border: 1px solid #e8e4df;
   }
 
   .card-header {
-    @apply px-6 py-4 border-b border-gray-100;
+    @apply px-6 py-4;
+    border-bottom: 1px solid #f0ece7;
   }
 
   .card-body {

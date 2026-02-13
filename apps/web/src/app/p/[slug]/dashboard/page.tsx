@@ -232,14 +232,14 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-            router.push('/signin');
+            router.push(`/p/${params.slug}/auth`);
             return;
         }
 
         const productRes = await fetch(`/api/products/by-slug/${params.slug}`);
         const productData = await productRes.json();
         if (productData.error) {
-            router.push('/');
+            router.push(`/p/${params.slug}`);
             return;
         }
         setProduct(productData);
@@ -252,7 +252,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
             .single();
 
         if (puError || !pu) {
-            router.push('/signin');
+            router.push(`/p/${params.slug}/auth`);
             return;
         }
         setProductUser(pu);
@@ -856,7 +856,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
-        router.push('/signin');
+        router.push(`/p/${params.slug}/auth`);
     };
 
     // Generate a flowchart summarizing the conversation
@@ -1013,7 +1013,7 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
             <div className="min-h-screen flex items-center justify-center bg-cream-50">
                 <div className="text-center">
                     <h1 className="text-xl font-semibold text-sand-800 mb-2">Access Denied</h1>
-                    <Link href="/signin" className="text-terracotta-600 hover:underline text-sm">
+                    <Link href={`/p/${params.slug}/auth`} className="text-terracotta-600 hover:underline text-sm">
                         Sign in to continue
                     </Link>
                 </div>
@@ -1067,7 +1067,7 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                     <div className="px-2 space-y-1">
                         {/* Personalisation - External Link */}
                         <button
-                            onClick={() => router.push('/personalisation')}
+                            onClick={() => router.push(`/p/${params.slug}/personalisation`)}
                             className={`${sidebarOpen ? 'w-full py-2.5 px-3' : 'w-10 h-10 mx-auto'} rounded-xl flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} text-sm font-medium transition-all text-sand-600 hover:bg-sand-200/50 hover:text-sand-800 group`}
                             title="Personalisation"
                         >
@@ -1097,7 +1097,7 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                     {/* Social Media - External Link */}
                     <div className="px-2 mt-2 pt-2 border-t border-sand-200/40">
                         <button
-                            onClick={() => router.push('/social')}
+                            onClick={() => router.push(`/p/${params.slug}/social`)}
                             className={`${sidebarOpen ? 'w-full py-2.5 px-3' : 'w-10 h-10 mx-auto'} rounded-xl flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} text-sm font-medium transition-all text-sand-600 hover:bg-sand-200/50 hover:text-sand-800 group`}
                             title="Social Media"
                         >

@@ -1,4 +1,5 @@
 'use client';
+import { sanitizeHtml } from '@/lib/utils/sanitize';
 
 import { useState, useEffect } from 'react';
 import {
@@ -261,8 +262,8 @@ export default function BlogEditor({ productId, blogId, ideaId, ideaTitle, onSav
                         <h2 className="text-lg font-semibold text-sand-900">Blog Editor</h2>
                         {blog.status && (
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${blog.status === 'published' ? 'bg-green-100 text-green-700' :
-                                    blog.status === 'review' ? 'bg-amber-100 text-amber-700' :
-                                        'bg-sand-100 text-sand-600'
+                                blog.status === 'review' ? 'bg-amber-100 text-amber-700' :
+                                    'bg-sand-100 text-sand-600'
                                 }`}>
                                 {blog.status}
                             </span>
@@ -365,7 +366,7 @@ export default function BlogEditor({ productId, blogId, ideaId, ideaTitle, onSav
                     {showPreview ? (
                         <div className="prose prose-sand max-w-none">
                             <h1>{blog.title}</h1>
-                            <div dangerouslySetInnerHTML={{ __html: blog.content_html || blog.content?.replace(/\n/g, '<br/>') || '' }} />
+                            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(blog.content_html || blog.content?.replace(/\n/g, '<br/>') || '') }} />
                         </div>
                     ) : (
                         <textarea
@@ -445,8 +446,8 @@ export default function BlogEditor({ productId, blogId, ideaId, ideaTitle, onSav
                                         <div
                                             key={i}
                                             className={`flex items-start gap-2 p-2 rounded-lg text-sm ${issue.type === 'error' ? 'bg-red-50 text-red-700' :
-                                                    issue.type === 'warning' ? 'bg-amber-50 text-amber-700' :
-                                                        'bg-blue-50 text-blue-700'
+                                                issue.type === 'warning' ? 'bg-amber-50 text-amber-700' :
+                                                    'bg-blue-50 text-blue-700'
                                                 }`}
                                         >
                                             {issue.type === 'error' ? <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> :

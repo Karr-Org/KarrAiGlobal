@@ -1,0 +1,58 @@
+# ══════════════════════════════════════════════════════════════
+# CODEOWNERS — KarrAI Global
+# ══════════════════════════════════════════════════════════════
+# This file defines code ownership for pull request reviews.
+# Any PR modifying files in a path below requires approval
+# from the listed owner(s) before it can be merged.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# ══════════════════════════════════════════════════════════════
+
+# ─── DEFAULT: You (founder) own everything ────────────────────
+*                                       @tohundguide
+
+# ─── AI/ML ENGINEER OWNS THESE AREAS ─────────────────────────
+# (Replace 'ai-engineer-username' with their actual GitHub username)
+
+# Core AI package — model adapters, LLM router, prompt engineering
+packages/ai/                            @ai-engineer-username @tohundguide
+
+# RAG pipeline — chunking, embeddings, retrieval, context building
+packages/rag/                           @ai-engineer-username @tohundguide
+
+# Cognitive Digital Twin — memory, learning, insights, entity graphs
+apps/web/src/lib/cognitive/             @ai-engineer-username @tohundguide
+
+# OKSE Search Engine — query routing, web crawling, semantic cache
+apps/web/src/lib/okse/                  @ai-engineer-username @tohundguide
+
+# AI-related API routes
+apps/web/src/app/api/chat/              @ai-engineer-username @tohundguide
+apps/web/src/app/api/okse/              @ai-engineer-username @tohundguide
+
+# ─── PROTECTED: FOUNDER-ONLY AREAS ───────────────────────────
+# These require ONLY your approval (AI engineer cannot approve)
+
+# Authentication & Authorization
+apps/web/src/lib/auth/                  @tohundguide
+apps/web/src/middleware.ts              @tohundguide
+apps/web/src/app/auth/                  @tohundguide
+
+# Payments & Billing
+apps/web/src/lib/payments/              @tohundguide
+apps/web/src/app/api/payments/          @tohundguide
+
+# Database migrations (destructive if wrong)
+supabase/migrations/                    @tohundguide
+
+# Environment & Configuration
+.env*                                   @tohundguide
+.github/                                @tohundguide
+package.json                            @tohundguide
+pnpm-lock.yaml                         @tohundguide
+pnpm-workspace.yaml                    @tohundguide
+
+# Deployment & Infrastructure
+vercel.json                             @tohundguide
+next.config.*                           @tohundguide
+apps/web/next.config.*                  @tohundguide

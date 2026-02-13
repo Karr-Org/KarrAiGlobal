@@ -278,7 +278,7 @@ function PersonalisationContent() {
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
-        router.push('/auth/login');
+        router.push(product ? `/p/${product.slug}/auth` : '/auth/login');
     };
 
     // ============================================
@@ -366,7 +366,7 @@ function PersonalisationContent() {
                 {/* Social Media Link */}
                 <div className="px-2 mt-2 pt-2 border-t border-sand-200/40">
                     <button
-                        onClick={() => router.push('/social')}
+                        onClick={() => router.push(product ? `/p/${product.slug}/social` : '/social')}
                         className={`${sidebarOpen ? 'w-full py-2.5 px-3' : 'w-10 h-10 mx-auto'} rounded-xl flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} text-sm font-medium transition-all text-sand-600 hover:bg-sand-200/50 hover:text-sand-800 group`}
                         title="Social Media"
                     >

@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { requireCreator, getAdmin } from '@/lib/auth';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function GET(request: NextRequest) {
+export async function GET() {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const { data: products, error } = await supabase
             .from('products')
             .select('id, name')

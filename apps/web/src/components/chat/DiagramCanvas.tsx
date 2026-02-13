@@ -19,6 +19,7 @@ import {
     FileCode,
 } from 'lucide-react';
 import { fixMermaidCode } from '@/lib/mermaid-utils';
+import { sanitizeHtml } from '@/lib/utils/sanitize';
 
 interface DiagramCanvasProps {
     isOpen: boolean;
@@ -498,7 +499,7 @@ export function DiagramCanvas({ isOpen, onClose, mermaidCode, title }: DiagramCa
                                                 to { stroke-dashoffset: -200; }
                                             }
                                         `}} />
-                                    <div dangerouslySetInnerHTML={{ __html: svg }} />
+                                    <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(svg) }} />
                                 </div>
                             </div>
                         )}

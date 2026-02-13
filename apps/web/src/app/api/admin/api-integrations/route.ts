@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCreator, getAdmin } from '@/lib/auth';
 
 // GET: List all available API integrations
 export async function GET(request: NextRequest) {
     try {
+        await requireCreator();
+        const supabase = getAdmin();
         const { data: integrations, error } = await supabase
             .from('api_integrations')
             .select('*')

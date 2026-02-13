@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAuth } from '@/lib/auth';
 
 // Initialize Supabase client with service role
 const supabase = createClient(
@@ -10,8 +11,12 @@ const supabase = createClient(
 const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
 const MAX_CHUNK_TOKENS = 150; // Optimal for Gemini embeddings per best practices
 
+export const maxDuration = 300; // 5 minutes for long PDF processing
+
 export async function POST(request: NextRequest) {
     try {
+        // Verify the caller is authenticated
+        await requireAuth();
         const contentType = request.headers.get('content-type') || '';
 
         let title: string;
@@ -24,7 +29,6 @@ export async function POST(request: NextRequest) {
             const formData = await request.formData();
             const file = formData.get('file') as File;
             knowledgeBaseId = formData.get('knowledgeBaseId') as string;
-            // distinct from KB, we might want to tag it? No, keep simple.
 
             documentType = formData.get('documentType') as string || 'other';
             authorityLevel = parseInt(formData.get('authorityLevel') as string) || 5;
@@ -119,10 +123,9 @@ export async function POST(request: NextRequest) {
         // 4. Insert chunks with embeddings
         const chunkInserts = chunks.map((chunk, i) => ({
             document_id: document.id,
-            // product_id removed as it's linked via document -> KB -> Product (or Product -> KB)
             content: chunk.content,
             chunk_index: i,
-            embedding: JSON.stringify(embeddings[i]), // Format as string for Supabase
+            embedding: JSON.stringify(embeddings[i]),
             section_hierarchy: chunk.hierarchy,
         }));
 
@@ -144,7 +147,6 @@ export async function POST(request: NextRequest) {
 
         // 6. Audit log
         await supabase.from('audit_logs').insert({
-            // product_id: null, // No specific product for this KB upload
             event_type: 'document_ingested',
             event_category: 'knowledge',
             event_data: {

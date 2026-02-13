@@ -1,7 +1,9 @@
 /**
- * Social Insights API
+ * Social Insights API (Unified)
  * GET — Get AI-extracted insights from chat sessions
  * POST — Process a chat session to extract insights and generate drafts
+ * 
+ * Supports both user-level and product-level insights via ownerType/ownerId params.
  */
 
 import { NextResponse } from 'next/server';
@@ -27,6 +29,16 @@ async function getCurrentUserId(request: Request): Promise<string | null> {
     return null;
 }
 
+/**
+ * Resolve productId from unified owner params or legacy productId param.
+ */
+function resolveProductId(url: URL, body?: Record<string, unknown>): string | undefined {
+    const ownerType = (body?.ownerType as string) || url.searchParams.get('ownerType');
+    const ownerId = (body?.ownerId as string) || url.searchParams.get('ownerId');
+    if (ownerType === 'product' && ownerId) return ownerId;
+    return url.searchParams.get('productId') || (body?.productId as string) || undefined;
+}
+
 export async function GET(request: Request) {
     try {
         const userId = await getCurrentUserId(request);
@@ -37,6 +49,7 @@ export async function GET(request: Request) {
         const url = new URL(request.url);
         const status = url.searchParams.get('status') || undefined;
         const limit = parseInt(url.searchParams.get('limit') || '10');
+        const productId = resolveProductId(url);
 
         const supabase = getServiceSupabase();
         let query = supabase
@@ -45,6 +58,13 @@ export async function GET(request: Request) {
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit);
+
+        // Owner scoping
+        if (productId) {
+            query = query.eq('product_id', productId);
+        } else {
+            query = query.is('product_id', null);
+        }
 
         if (status) query = query.eq('status', status);
 
@@ -65,7 +85,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const { sessionId } = await request.json();
+        const body = await request.json();
+        const { sessionId } = body;
         if (!sessionId) {
             return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
         }

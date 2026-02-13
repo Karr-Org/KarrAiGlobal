@@ -489,6 +489,7 @@ ALTER TABLE llm_citations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_learnings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_calendar ENABLE ROW LEVEL SECURITY;
 -- RLS Policies (using product ownership)
+DROP POLICY IF EXISTS "Users can manage their product marketing profiles" ON product_marketing_profiles;
 CREATE POLICY "Users can manage their product marketing profiles" ON product_marketing_profiles FOR ALL USING (
     product_id IN (
         SELECT id
@@ -496,6 +497,7 @@ CREATE POLICY "Users can manage their product marketing profiles" ON product_mar
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their content ideas" ON content_ideas;
 CREATE POLICY "Users can manage their content ideas" ON content_ideas FOR ALL USING (
     product_id IN (
         SELECT id
@@ -503,6 +505,7 @@ CREATE POLICY "Users can manage their content ideas" ON content_ideas FOR ALL US
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their blog posts" ON ai_blog_posts;
 CREATE POLICY "Users can manage their blog posts" ON ai_blog_posts FOR ALL USING (
     product_id IN (
         SELECT id
@@ -510,6 +513,7 @@ CREATE POLICY "Users can manage their blog posts" ON ai_blog_posts FOR ALL USING
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their social posts" ON ai_social_posts;
 CREATE POLICY "Users can manage their social posts" ON ai_social_posts FOR ALL USING (
     product_id IN (
         SELECT id
@@ -517,6 +521,7 @@ CREATE POLICY "Users can manage their social posts" ON ai_social_posts FOR ALL U
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can view their marketing reports" ON marketing_daily_reports;
 CREATE POLICY "Users can view their marketing reports" ON marketing_daily_reports FOR ALL USING (
     product_id IN (
         SELECT id
@@ -524,6 +529,7 @@ CREATE POLICY "Users can view their marketing reports" ON marketing_daily_report
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can view their LLM citations" ON llm_citations;
 CREATE POLICY "Users can view their LLM citations" ON llm_citations FOR ALL USING (
     product_id IN (
         SELECT id
@@ -531,6 +537,7 @@ CREATE POLICY "Users can view their LLM citations" ON llm_citations FOR ALL USIN
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their content learnings" ON content_learnings;
 CREATE POLICY "Users can manage their content learnings" ON content_learnings FOR ALL USING (
     product_id IN (
         SELECT id
@@ -538,6 +545,7 @@ CREATE POLICY "Users can manage their content learnings" ON content_learnings FO
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their content calendar" ON content_calendar;
 CREATE POLICY "Users can manage their content calendar" ON content_calendar FOR ALL USING (
     product_id IN (
         SELECT id
@@ -549,6 +557,7 @@ CREATE POLICY "Users can manage their content calendar" ON content_calendar FOR 
 ALTER TABLE product_social_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_automation_rules ENABLE ROW LEVEL SECURITY;
 -- RLS Policies for new tables
+DROP POLICY IF EXISTS "Users can manage their product social accounts" ON product_social_accounts;
 CREATE POLICY "Users can manage their product social accounts" ON product_social_accounts FOR ALL USING (
     product_id IN (
         SELECT id
@@ -556,6 +565,7 @@ CREATE POLICY "Users can manage their product social accounts" ON product_social
         WHERE created_by = auth.uid()
     )
 );
+DROP POLICY IF EXISTS "Users can manage their automation rules" ON marketing_automation_rules;
 CREATE POLICY "Users can manage their automation rules" ON marketing_automation_rules FOR ALL USING (
     product_id IN (
         SELECT id
@@ -568,18 +578,25 @@ CREATE OR REPLACE FUNCTION update_marketing_updated_at() RETURNS TRIGGER AS $$ B
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS update_product_marketing_profiles_updated_at ON product_marketing_profiles;
 CREATE TRIGGER update_product_marketing_profiles_updated_at BEFORE
 UPDATE ON product_marketing_profiles FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_content_ideas_updated_at ON content_ideas;
 CREATE TRIGGER update_content_ideas_updated_at BEFORE
 UPDATE ON content_ideas FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_ai_blog_posts_updated_at ON ai_blog_posts;
 CREATE TRIGGER update_ai_blog_posts_updated_at BEFORE
 UPDATE ON ai_blog_posts FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_ai_social_posts_updated_at ON ai_social_posts;
 CREATE TRIGGER update_ai_social_posts_updated_at BEFORE
 UPDATE ON ai_social_posts FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_content_calendar_updated_at ON content_calendar;
 CREATE TRIGGER update_content_calendar_updated_at BEFORE
 UPDATE ON content_calendar FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_product_social_accounts_updated_at ON product_social_accounts;
 CREATE TRIGGER update_product_social_accounts_updated_at BEFORE
 UPDATE ON product_social_accounts FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
+DROP TRIGGER IF EXISTS update_marketing_automation_rules_updated_at ON marketing_automation_rules;
 CREATE TRIGGER update_marketing_automation_rules_updated_at BEFORE
 UPDATE ON marketing_automation_rules FOR EACH ROW EXECUTE FUNCTION update_marketing_updated_at();
 -- Grant permissions

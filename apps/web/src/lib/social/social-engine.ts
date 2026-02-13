@@ -240,6 +240,7 @@ export async function createDraft(
         aiDraftVariant?: string;
         aiConfidenceScore?: number;
         scheduledAt?: Date;
+        productId?: string;
     }
 ): Promise<SocialPost> {
     const supabase = getSupabase();
@@ -248,6 +249,7 @@ export async function createDraft(
         .from('social_posts')
         .insert({
             user_id: userId,
+            product_id: options?.productId || null,
             social_account_id: options?.socialAccountId,
             content,
             hashtags: options?.hashtags || [],
@@ -269,7 +271,9 @@ export async function createDraft(
 }
 
 /**
- * Get posts for a user with optional filters
+ * Get posts for a user or product with optional filters.
+ * If productId is provided, fetches product-level posts.
+ * Otherwise, fetches user-level posts (product_id IS NULL).
  */
 export async function getPosts(
     userId: string,
@@ -278,6 +282,7 @@ export async function getPosts(
         platform?: string;
         limit?: number;
         offset?: number;
+        productId?: string;
     }
 ): Promise<{ posts: SocialPost[]; total: number }> {
     const supabase = getSupabase();
@@ -286,6 +291,13 @@ export async function getPosts(
         .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+
+    // Owner scoping: product-level vs user-level
+    if (filters?.productId) {
+        query = query.eq('product_id', filters.productId);
+    } else {
+        query = query.is('product_id', null);
+    }
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.platform) query = query.eq('platform', filters.platform);

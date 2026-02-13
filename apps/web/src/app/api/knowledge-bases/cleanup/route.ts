@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { requireAuth, getAdmin, withAuth } from '@/lib/auth';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-// DELETE - Remove duplicate knowledge bases (keep oldest)
+// DELETE - Remove duplicate knowledge bases (keep oldest) — scoped to authenticated user
 export async function DELETE(request: NextRequest) {
-    try {
-        // Get all KBs grouped by name
+    return withAuth(async () => {
+        const user = await requireAuth();
+        const supabase = getAdmin();
+
+        // Get only this user's KBs
         const { data: allKbs, error } = await supabase
             .from('knowledge_bases')
             .select('id, name, created_at')
+            .eq('created_by', user.id)
             .order('created_at', { ascending: true });
 
         if (error) throw error;
@@ -31,7 +30,6 @@ export async function DELETE(request: NextRequest) {
         const toDelete: string[] = [];
         for (const [, kbs] of nameMap) {
             if (kbs.length > 1) {
-                // Keep first (oldest), delete rest
                 for (let i = 1; i < kbs.length; i++) {
                     toDelete.push(kbs[i].id);
                 }
@@ -52,9 +50,5 @@ export async function DELETE(request: NextRequest) {
             deleted: toDelete.length,
             message: `Removed ${toDelete.length} duplicate knowledge bases`
         });
-
-    } catch (error: any) {
-        console.error('Cleanup error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    });
 }

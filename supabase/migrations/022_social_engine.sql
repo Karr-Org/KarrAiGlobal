@@ -177,10 +177,13 @@ ALTER TABLE social_analytics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE social_insights ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_patterns ENABLE ROW LEVEL SECURITY;
 -- Social accounts: users can only see/manage their own
+DROP POLICY IF EXISTS "Users manage own social accounts" ON social_accounts;
 CREATE POLICY "Users manage own social accounts" ON social_accounts FOR ALL USING (auth.uid() = user_id);
 -- Social posts: users can only see/manage their own
+DROP POLICY IF EXISTS "Users manage own social posts" ON social_posts;
 CREATE POLICY "Users manage own social posts" ON social_posts FOR ALL USING (auth.uid() = user_id);
 -- Social analytics: users can see analytics for their posts
+DROP POLICY IF EXISTS "Users view own post analytics" ON social_analytics;
 CREATE POLICY "Users view own post analytics" ON social_analytics FOR
 SELECT USING (
         EXISTS (
@@ -191,8 +194,10 @@ SELECT USING (
         )
     );
 -- Social insights: users can only see their own
+DROP POLICY IF EXISTS "Users manage own insights" ON social_insights;
 CREATE POLICY "Users manage own insights" ON social_insights FOR ALL USING (auth.uid() = user_id);
 -- Content patterns: users can only see their own
+DROP POLICY IF EXISTS "Users view own content patterns" ON content_patterns;
 CREATE POLICY "Users view own content patterns" ON content_patterns FOR ALL USING (auth.uid() = user_id);
 -- ============================================
 -- TRIGGER: auto-update updated_at
@@ -201,11 +206,15 @@ CREATE OR REPLACE FUNCTION update_social_updated_at() RETURNS TRIGGER AS $$ BEGI
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_social_accounts_updated ON social_accounts;
 CREATE TRIGGER trg_social_accounts_updated BEFORE
 UPDATE ON social_accounts FOR EACH ROW EXECUTE FUNCTION update_social_updated_at();
+DROP TRIGGER IF EXISTS trg_social_posts_updated ON social_posts;
 CREATE TRIGGER trg_social_posts_updated BEFORE
 UPDATE ON social_posts FOR EACH ROW EXECUTE FUNCTION update_social_updated_at();
+DROP TRIGGER IF EXISTS trg_social_insights_updated ON social_insights;
 CREATE TRIGGER trg_social_insights_updated BEFORE
 UPDATE ON social_insights FOR EACH ROW EXECUTE FUNCTION update_social_updated_at();
+DROP TRIGGER IF EXISTS trg_content_patterns_updated ON content_patterns;
 CREATE TRIGGER trg_content_patterns_updated BEFORE
 UPDATE ON content_patterns FOR EACH ROW EXECUTE FUNCTION update_social_updated_at();

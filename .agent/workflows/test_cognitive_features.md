@@ -1,39 +1,51 @@
 ---
-description: How to test the Cognitive Digital Twin features (Phase 3)
+description: Test procedure for Cognitive Digital Twin features (Phase 3)
 ---
 
-# Testing Cognitive Digital Twin Features
+# Cognitive Digital Twin Testing Guide
 
-This workflow guides you through testing the Adaptive Intelligence, Proactive Insights, and Learning Velocity features.
+This workflow validates the core components of the Phase 3 Cognitive Digital Twin system.
 
-## 1. Verify Profile Data
-Check what the AI currently knows about the user:
-```powershell
-$response = Invoke-RestMethod -Uri "http://localhost:3000/api/cognitive/profile?productUserId=<YOUR_PRODUCT_USER_ID>"
-$response.profile | ConvertTo-Json -Depth 3
-```
+## 1. Prerequisites
 
-## 2. Test Welcome Message
-1. Navigate to the dashboard: `http://localhost:3000/p/<slug>/dashboard`
-2. Click "New Chat" or clear the current session URL parameter.
-3. You should see a **personalized welcome message** greeting you by name and offering context-relevant quick actions (e.g., "Review GST filing").
+- [x] Database migrations applied (including `20260203_cognitive_memory_system.sql`)
+- [ ] Server running (`npm run dev`)
+- [ ] User authenticated in the app
 
-## 3. Trigger Proactive Insights
-1. Start a chat about a specific topic (e.g., "How do I file GSTR-1?").
-2. The system will detect your goal and potential entities.
-3. Refresh the page or start a new session.
-4. A **floating insight card** should appear suggesting a follow-up or related action (e.g., "GST Filing Deadline approaches").
+## 2. Testing Steps
 
-## 4. Test Learning Velocity
-1. Ask beginner questions about a topic (e.g., "What is GST?").
-2. The AI will treat you as a beginner (simple language, analogies).
-3. Then, ask detailed technical questions (e.g., "Explain the ITC reversal based on Rule 42").
-4. The AI will detect your rapid learning/expertise.
-5. In the next response, it should shift to **Expert Mode** (concise, technical terms, no analogies).
-6. Check the profile API again to see `learningVelocity` updates.
+### A. Memory Formation (Chat Session)
 
-## 5. Verify Emotional Adaptation
-1. Say something frustrated: "This is so confusing! I don't understand why it failed!"
-2. The AI response should start with empathy: "I understand this is frustrating..." and simplify the explanation.
-3. Say something urgent: "I need this done by 5 PM today!"
-4. The AI respons should be brief and action-oriented: "Here is the quickest way to solve this..."
+1. Start a new chat session.
+2. Introduce yourself and mention a specific fact (e.g., "My name is [Name] and I work in [Industry]").
+3. Verify `chat_sessions` table has a new entry.
+4. Verify `user_cognitive_profile` is created/updated for your user.
+
+### B. Entity Extraction
+
+1. Mention a company or specific entity (e.g., "I use Notion for project management").
+2. Check `user_entity_graph` table for "Notion" entry.
+3. Verify `entity_type` is correctly classified (e.g., "App" or "Tool").
+
+### C. Fact Retrieval
+
+1. Start a *new* chat session.
+2. Ask "What do you know about me?".
+3. Verify the agent recalls the name/industry mentioned in step A.
+4. Verify `memory_facts` table contains the extracted facts.
+
+### D. Proactive Insights (Mock Test)
+
+1. Manually insert a proactive insight via SQL:
+
+   ```sql
+   INSERT INTO proactive_insights (product_user_id, insight_type, title, description)
+   VALUES ('[USER_ID]', 'suggestion', 'Test Insight', 'This is a test proactive insight.');
+   ```
+
+2. Verify the UI displays a notification or insight card.
+
+## 3. Troubleshooting
+
+- If facts aren't saved, check `supabase/functions/memory_processor` logs.
+- If retrieval fails, check RLS policies on `memory_facts`.

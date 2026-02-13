@@ -1,59 +1,83 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
-// Multi-domain middleware for product routing
-// Maps custom domains to product slugs
-// OPTIMIZED: Fast paths for localhost development
+// Domains that serve the main makemyai.app platform (NOT product custom domains)
+const MAIN_DOMAINS = new Set([
+    'makemyai.app',
+    'www.makemyai.app',
+    'karrai.com',
+    'www.karrai.com',
+    'karrai-global.vercel.app',
+]);
+
+// Paths that should NEVER be rewritten to /p/[slug] on custom domains
+const PLATFORM_PATHS = [
+    '/_next',
+    '/api',
+    '/admin',
+    '/creator',
+    '/marketplace',
+    '/auth',
+    '/favicon',
+];
+
 export async function middleware(request: NextRequest) {
     const hostname = request.headers.get('host') || '';
     const pathname = request.nextUrl.pathname;
 
-    // FAST PATH: Skip everything on localhost for faster dev experience
-    const baseDomain = hostname.split(':')[0];
-    if (baseDomain === 'localhost' || baseDomain === '127.0.0.1') {
-        return NextResponse.next();
+    // SAFETY NET: If OAuth code lands at root (Supabase fallback), redirect to /auth/callback
+    if (pathname === '/' && request.nextUrl.searchParams.has('code')) {
+        const url = request.nextUrl.clone();
+        url.pathname = '/auth/callback';
+        // Preserve the 'next' param if missing, default to creator dashboard
+        if (!url.searchParams.has('next')) {
+            url.searchParams.set('next', '/creator/dashboard');
+        }
+        console.log('[Middleware] Caught OAuth code at root, redirecting to /auth/callback');
+        return NextResponse.redirect(url);
     }
 
-    // Skip for app routes, static files, admin, etc.
-    if (
-        pathname.startsWith('/api') ||
-        pathname.startsWith('/admin') ||
-        pathname.startsWith('/p/') ||
-        pathname.startsWith('/auth') ||
-        pathname.startsWith('/chat') ||
-        pathname.startsWith('/demo') ||
-        pathname.startsWith('/gst-ai') ||
-        pathname.startsWith('/social') ||
-        pathname.startsWith('/marketing') ||
-        pathname.startsWith('/personalisation') ||
-        pathname.startsWith('/privacy-policy') ||
-        pathname.startsWith('/terms-and-conditions') ||
-        pathname.startsWith('/contact') ||
-        pathname.startsWith('/_next') ||
-        pathname.startsWith('/favicon') ||
-        pathname.includes('.')
-    ) {
-        return NextResponse.next();
+    console.log('[Middleware] Processing:', pathname);
+
+    // 1. Always run Supabase session handling (PKCE cookies, token refresh)
+    //    This MUST run for /creator and /auth paths for OAuth to work
+    const supabaseResponse = await updateSession(request);
+    console.log('[Middleware] Session updated for:', pathname);
+
+    // 2. Local development — no custom domain routing needed
+    if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+        return supabaseResponse;
     }
 
-    // Skip for main app domain (production)
-    const mainDomains = ['makemyai.app', 'www.makemyai.app', 'karrai.com', 'www.karrai.com', 'karrai-global.vercel.app'];
-    if (mainDomains.some(d => baseDomain === d || baseDomain.endsWith(`.${d}`))) {
-        return NextResponse.next();
+    // 3. Platform paths — never rewrite these to /p/[slug]
+    if (PLATFORM_PATHS.some(p => pathname.startsWith(p)) || pathname.includes('.')) {
+        return supabaseResponse;
     }
 
-    // For custom domains only, look up the product by domain
-    // This rewrites the request to /p/[slug] internally
+    // 4. If URL already starts with /p/ it's already been resolved
+    if (pathname.startsWith('/p/')) {
+        return supabaseResponse;
+    }
+
+    // 5. Extract base domain (strip port and www prefix)
+    const baseDomain = hostname.split(':')[0].replace(/^www\./, '');
+
+    // 6. Main app domain — serve as-is
+    if (MAIN_DOMAINS.has(baseDomain)) {
+        return supabaseResponse;
+    }
+
+    // ─── CUSTOM PRODUCT DOMAIN ────────────────────────────────────
     try {
-        // Fetch product by domain from our API with a timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500);
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
         const productRes = await fetch(
             `${request.nextUrl.origin}/api/products/by-domain?domain=${baseDomain}`,
             {
                 headers: { 'x-middleware-cache': 'no-cache' },
-                signal: controller.signal
+                signal: controller.signal,
             }
         );
         clearTimeout(timeoutId);
@@ -61,26 +85,21 @@ export async function middleware(request: NextRequest) {
         if (productRes.ok) {
             const product = await productRes.json();
             if (product?.slug) {
-                // Rewrite to the product page
                 const url = request.nextUrl.clone();
                 url.pathname = `/p/${product.slug}${pathname === '/' ? '' : pathname}`;
                 return NextResponse.rewrite(url);
             }
         }
     } catch (e) {
-        // Silently ignore - don't block the request
-        if (e instanceof Error && e.name !== 'AbortError') {
-            console.error('Middleware domain lookup failed:', e);
-        }
+        console.warn('[middleware] Custom domain lookup failed for:', baseDomain, e);
     }
 
-    return NextResponse.next();
+    return supabaseResponse;
 }
 
 export const config = {
     matcher: [
-        // Only match root and top-level paths that might need domain rewriting
-        // Exclude all known app routes and static files for maximum performance
-        '/((?!_next|api|admin|p|auth|chat|demo|gst-ai|social|marketing|personalisation|privacy-policy|terms-and-conditions|contact|favicon|.*\\.).*)',
+        // Match ALL paths except static files and Next.js internals
+        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|eot)$).*)',
     ],
 };
