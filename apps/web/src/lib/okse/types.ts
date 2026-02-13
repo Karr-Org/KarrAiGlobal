@@ -113,7 +113,7 @@ export interface CacheLookupResult {
 // QUERY ROUTING
 // ============================================================================
 
-export type QueryComplexityLevel = 'SIMPLE' | 'MODERATE' | 'COMPLEX' | 'MULTI_HOP';
+export type QueryComplexityLevel = 'CONVERSATIONAL' | 'SIMPLE' | 'MODERATE' | 'COMPLEX' | 'MULTI_HOP';
 
 export interface QueryClassification {
     level: QueryComplexityLevel;
@@ -258,6 +258,19 @@ export interface OKSEResponse {
 // ============================================================================
 
 export const PIPELINE_CONFIGS: Record<QueryComplexityLevel, PipelineConfig> = {
+    CONVERSATIONAL: {
+        use_kb: false,
+        use_web_cache: false,
+        use_live_web: false,
+        use_entity_graph: false,
+        use_semantic_cache: false,
+        use_crag: false,
+        use_speculative_drafting: false,
+        num_drafts: 0,
+        kb_chunks: 0,
+        web_chunks: 0,
+        max_response_time_ms: 200,
+    },
     SIMPLE: {
         use_kb: true,
         use_web_cache: false,

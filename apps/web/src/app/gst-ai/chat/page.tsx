@@ -18,6 +18,15 @@ export default async function GstAiChatPage() {
                 productId="gst-ai"
                 productName="GST AI"
                 userId={user?.id}
+                suggestedQueries={[
+                    "What is the GST rate on mobile phones?",
+                    "How to file GSTR-3B?",
+                    "What is Input Tax Credit (ITC)?",
+                    "Due date for GSTR-1 filing",
+                    "GST registration process",
+                ]}
+                placeholder="Ask anything about GST..."
+                welcomeMessage="Welcome! 👋\n\nI'm your AI assistant for **GST (Goods & Services Tax)**. I can help with GST rates, filing procedures, ITC claims, compliance, and more. How can I assist you today?"
             />
         </div>
     );

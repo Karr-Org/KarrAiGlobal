@@ -2,6 +2,7 @@
  * OKSE: Query Complexity Router
  * 
  * Routes queries to appropriate processing pipelines based on complexity:
+ * - CONVERSATIONAL: Greetings, thanks, meta-questions (no KB search needed)
  * - SIMPLE: Definition lookups, single fact queries
  * - MODERATE: Context-dependent questions, 1-2 conditions
  * - COMPLEX: Multi-condition, edge cases, what-if scenarios
@@ -29,6 +30,22 @@ interface RuleResult {
 function applyRules(query: string): RuleResult {
     const normalizedQuery = query.toLowerCase().trim();
     const wordCount = normalizedQuery.split(/\s+/).length;
+
+    // Rule 0: Conversational queries (greetings, thanks, meta) — NO KB search needed
+    const conversationalPatterns = [
+        /^(hi|hello|hey|howdy|greetings|yo|sup)\b/i,
+        /^good\s+(morning|afternoon|evening|night)\b/i,
+        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going)\b/i,
+        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great))\b/i,
+        /^(thanks?|thank\s+you|thx|cheers|appreciated)\b/i,
+        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright)\s*[.!]?\s*$/i,
+        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work)\s*\??\s*$/i,
+        /^help\s*$/i,
+    ];
+
+    if (conversationalPatterns.some(p => p.test(query))) {
+        return { level: 'CONVERSATIONAL', confidence: 1.0, reason: 'Greeting, farewell, or meta-question — no KB search needed' };
+    }
 
     // Rule 1: Multi-hop indicators
     const multiHopPatterns = [
@@ -113,6 +130,11 @@ const CLASSIFICATION_PROMPT = `You are a query complexity classifier for a profe
 
 Classify the following query into one of these levels:
 
+CONVERSATIONAL: Greetings, farewells, acknowledgements, or questions about the AI itself
+- "Hello"
+- "Thanks!"
+- "Who are you?"
+
 SIMPLE: Definition lookups, single fact queries, rate/deadline inquiries
 - "What is GST?"
 - "GST rate on coffee"
@@ -176,10 +198,12 @@ async function classifyWithLLM(query: string): Promise<QueryClassification> {
 
 function getEstimatedSources(level: QueryComplexityLevel): number {
     switch (level) {
+        case 'CONVERSATIONAL': return 0;
         case 'SIMPLE': return 2;
         case 'MODERATE': return 5;
         case 'COMPLEX': return 8;
         case 'MULTI_HOP': return 12;
+        default: return 5;
     }
 }
 

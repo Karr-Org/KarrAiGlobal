@@ -111,10 +111,10 @@ export default function ChatPage() {
     };
 
     const suggestedQuestions = [
-        "What is the definition of 'supply' under GST?",
-        "When can I claim Input Tax Credit?",
-        "What are the penalties for late filing of GSTR-3B?",
-        "Explain the concept of reverse charge mechanism",
+        `What are the key features of ${selectedProduct?.name || 'this product'}?`,
+        `How can I get started?`,
+        `What are the most common questions?`,
+        `Tell me about the latest updates`,
     ];
 
     return (
@@ -159,11 +159,11 @@ export default function ChatPage() {
                                 Welcome to {selectedProduct?.name || 'AI Assistant'}
                             </h2>
                             <p className="text-white/60 mb-8 max-w-md mx-auto">
-                                Ask me anything about GST laws, circulars, and compliance. I'll provide accurate answers based on official sources.
+                                Ask me anything. I'll provide accurate answers based on official sources.
                             </p>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
-                                {suggestedQuestions.map((q, i) => (
+                                {suggestedQuestions.map((q: string, i: number) => (
                                     <button
                                         key={i}
                                         onClick={() => setInput(q)}
@@ -182,12 +182,12 @@ export default function ChatPage() {
                             >
                                 <div
                                     className={`max-w-[85%] rounded-2xl px-5 py-4 ${msg.role === 'user'
-                                            ? 'bg-gradient-to-r from-teal-500 to-blue-500 text-white'
-                                            : 'bg-white/10 backdrop-blur-sm border border-white/10 text-white'
+                                        ? 'bg-gradient-to-r from-teal-500 to-blue-500 text-white'
+                                        : 'bg-white/10 backdrop-blur-sm border border-white/10 text-white'
                                         }`}
                                 >
-                                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                                        {msg.content}
+                                    <div className="text-sm leading-relaxed">
+                                        <ChatMarkdown content={msg.content} />
                                     </div>
 
                                     {/* Sources */}
@@ -264,7 +264,7 @@ export default function ChatPage() {
                                         sendMessage();
                                     }
                                 }}
-                                placeholder="Ask a question about GST..."
+                                placeholder={`Ask a question about ${selectedProduct?.name || 'this topic'}...`}
                                 rows={1}
                                 className="w-full bg-white/10 text-white placeholder-white/40 rounded-xl px-4 py-3 pr-12 border border-white/20 focus:border-teal-500/50 focus:ring-0 focus:outline-none resize-none"
                                 style={{ minHeight: '48px', maxHeight: '200px' }}
@@ -285,4 +285,75 @@ export default function ChatPage() {
             </div>
         </div>
     );
+}
+
+/** Simple inline markdown renderer for the dark-themed chat page */
+function ChatMarkdown({ content }: { content: string }) {
+    if (!content) return null;
+    const lines = content.split('\n');
+    return (
+        <>
+            {lines.map((line, i) => {
+                // Heading
+                if (line.startsWith('## ')) {
+                    return <h3 key={i} className="font-bold text-base mt-3 mb-1">{renderInline(line.slice(3))}</h3>;
+                }
+                if (line.startsWith('### ')) {
+                    return <h4 key={i} className="font-semibold text-sm mt-2 mb-1">{renderInline(line.slice(4))}</h4>;
+                }
+                // Bullet
+                if (/^[\-\*•]\s/.test(line)) {
+                    return (
+                        <div key={i} className="flex gap-2 ml-1">
+                            <span className="text-teal-400 select-none">•</span>
+                            <span>{renderInline(line.replace(/^[\-\*•]\s/, ''))}</span>
+                        </div>
+                    );
+                }
+                // Numbered list
+                if (/^\d+[\.\)]\s/.test(line)) {
+                    const num = line.match(/^(\d+)[\.\)]\s/)?.[1];
+                    return (
+                        <div key={i} className="flex gap-2 ml-1">
+                            <span className="text-teal-400 select-none min-w-[1.2em]">{num}.</span>
+                            <span>{renderInline(line.replace(/^\d+[\.\)]\s/, ''))}</span>
+                        </div>
+                    );
+                }
+                // Empty line
+                if (line.trim() === '') return <div key={i} className="h-2" />;
+                // Paragraph
+                return <div key={i}>{renderInline(line)}</div>;
+            })}
+        </>
+    );
+}
+
+function renderInline(text: string): React.ReactNode {
+    if (!text) return null;
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+    let key = 0;
+    while (remaining.length > 0) {
+        const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+        const codeMatch = remaining.match(/`([^`]+)`/);
+        const citationMatch = remaining.match(/\[(Source\s+\d+|\d+)\]/);
+        const matches = [
+            boldMatch ? { type: 'bold', match: boldMatch } : null,
+            codeMatch ? { type: 'code', match: codeMatch } : null,
+            citationMatch ? { type: 'citation', match: citationMatch } : null,
+        ].filter(Boolean) as { type: string; match: RegExpMatchArray }[];
+        if (matches.length === 0) { parts.push(remaining); break; }
+        matches.sort((a, b) => (a.match.index || 0) - (b.match.index || 0));
+        const earliest = matches[0];
+        const idx = earliest.match.index || 0;
+        if (idx > 0) parts.push(remaining.substring(0, idx));
+        switch (earliest.type) {
+            case 'bold': parts.push(<strong key={key++}>{earliest.match[1]}</strong>); break;
+            case 'code': parts.push(<code key={key++} className="bg-white/10 text-teal-300 px-1.5 py-0.5 rounded text-xs font-mono">{earliest.match[1]}</code>); break;
+            case 'citation': parts.push(<span key={key++} className="text-xs bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded-full font-medium">[{earliest.match[1]}]</span>); break;
+        }
+        remaining = remaining.substring(idx + earliest.match[0].length);
+    }
+    return <>{parts}</>;
 }

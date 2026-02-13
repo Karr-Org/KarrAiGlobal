@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { sanitizeUserInput, IDENTITY_PROTECTION_BLOCK } from '@/lib/conversation-intelligence';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -149,6 +150,22 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Rate limiting enforcement
+        const rateLimit = keyRecord.rate_limit_per_minute || 30; // Default 30 req/min
+        const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+        const { count: recentRequests } = await supabase
+            .from('widget_sessions')
+            .select('id', { count: 'exact', head: true })
+            .eq('api_key_id', keyRecord.id)
+            .gte('last_message_at', oneMinuteAgo);
+
+        if ((recentRequests ?? 0) > rateLimit) {
+            return NextResponse.json(
+                { error: 'Rate limit exceeded. Please slow down.', code: 'RATE_LIMITED' },
+                { status: 429, headers: corsHeaders(origin) }
+            );
+        }
+
         // Check origin restriction
         if (keyRecord.allowed_origins?.length > 0 && origin) {
             if (!keyRecord.allowed_origins.includes(origin)) {
@@ -179,6 +196,9 @@ export async function POST(request: NextRequest) {
                 { status: 400, headers }
             );
         }
+
+        // Sanitize input against prompt injection
+        const sanitizedMessage = sanitizeUserInput(message);
 
         // 3. Update API key usage (fire-and-forget, non-blocking)
         supabase
@@ -263,8 +283,8 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 8. Build system prompt with persona
-        let systemPrompt = `You are a helpful AI assistant for ${product?.name || 'this product'}.`;
+        // 8. Build system prompt with persona + identity protection
+        let systemPrompt = `You are a helpful AI assistant for ${product?.name || 'this product'}.\n${IDENTITY_PROTECTION_BLOCK}`;
 
         if (persona) {
             systemPrompt = '';
@@ -275,6 +295,9 @@ export async function POST(request: NextRequest) {
                 if (persona.organization_name) systemPrompt += ` at ${persona.organization_name}`;
                 systemPrompt += '.\n\n';
             }
+
+            // Inject identity protection
+            systemPrompt += IDENTITY_PROTECTION_BLOCK + '\n\n';
 
             if (persona.tone) {
                 const toneMap: Record<string, string> = {
@@ -292,7 +315,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (persona.blocked_topics?.length > 0) {
-                systemPrompt += `## Guardrails\nNEVER discuss: ${persona.blocked_topics.join(', ')}. Politely decline.\n\n`;
+                systemPrompt += `## ⛔ BLOCKED TOPICS (STRICT):\nYou MUST NEVER discuss these topics under ANY circumstances: ${persona.blocked_topics.join(', ')}.\nIf a user asks about any of these, respond ONLY with: "I'm not able to discuss that topic. Is there something else I can help you with?"\nDo NOT provide partial answers, hints, or workarounds for blocked topics.\n\n`;
             }
 
             if (persona.fallback_message) {
@@ -302,8 +325,8 @@ export async function POST(request: NextRequest) {
 
         // Add KB context rules
         if (context) {
-            systemPrompt += `\n## Knowledge Base Context\n${context}\n\n`;
-            systemPrompt += 'Prioritize answers from the Knowledge Base Context above. Cite sources when applicable.\n';
+            systemPrompt += `\n## KNOWLEDGE BASE CONTEXT (AUTHORITATIVE SOURCE):\n${context}\n\n`;
+            systemPrompt += 'Prioritize answers from the Knowledge Base Context above. Cite sources as [Source N].\n';
         } else {
             systemPrompt += '\nNo specific knowledge base content was found for this query. ';
             systemPrompt += 'Answer to the best of your ability based on your instructions.\n';
@@ -326,10 +349,10 @@ export async function POST(request: NextRequest) {
             isFirst = false;
         }
 
-        // Add current message
+        // Add current message (sanitized)
         const currentText = isFirst
-            ? `${systemPrompt}\n\nUser: ${message}`
-            : message;
+            ? `${systemPrompt}\n\nUser: ${sanitizedMessage}`
+            : sanitizedMessage;
         messages.push({ role: 'user', parts: [{ text: currentText }] });
 
         // 10. Generate response

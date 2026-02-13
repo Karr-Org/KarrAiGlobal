@@ -59,6 +59,7 @@ export function useCognitiveSession({
 
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const pendingMessagesRef = useRef<ChatMessage[]>([]);
+    const sessionInitializedRef = useRef(false);
 
     // Start a new session
     const startNewSession = useCallback(async () => {
@@ -178,32 +179,40 @@ export function useCognitiveSession({
 
     // Initialize session on mount
     useEffect(() => {
-        if (productUserId && productId && !currentSession) {
+        if (productUserId && productId && !currentSession && !sessionInitializedRef.current) {
+            sessionInitializedRef.current = true;
+            setIsLoading(true);
+
             // Get or create active session
-            fetch('/api/cognitive/sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    productUserId,
-                    productId,
-                    forceNew: false,
-                }),
-            })
-                .then(res => res.json())
-                .then(data => {
+            (async () => {
+                try {
+                    const res = await fetch('/api/cognitive/sessions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            productUserId,
+                            productId,
+                            forceNew: false,
+                        }),
+                    });
+                    const data = await res.json();
+
                     if (data.session) {
                         setCurrentSession(data.session);
                         onSessionChange?.(data.session);
 
-                        // If session has messages, load them
+                        // If session has messages, load them — await to prevent race condition
                         if (data.session.message_count > 0) {
-                            loadSession(data.session.id);
+                            await loadSession(data.session.id);
                         }
                     }
-                })
-                .catch(err => {
+                } catch (err) {
                     console.error('Error initializing session:', err);
-                });
+                    sessionInitializedRef.current = false; // Allow retry
+                } finally {
+                    setIsLoading(false);
+                }
+            })();
         }
     }, [productUserId, productId]);
 

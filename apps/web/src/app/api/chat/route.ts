@@ -272,7 +272,37 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error('[Chat] Error:', error);
-        return NextResponse.json({ error: error.message || 'Chat failed' }, { status: 500 });
+
+        // Classify error type for proper frontend handling
+        const errorMessage = error.message || '';
+
+        if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('rate')) {
+            return NextResponse.json({
+                error: 'API rate limit exceeded. Please wait a moment and try again.',
+                code: 'RATE_LIMITED',
+                isWarning: true,
+            }, { status: 429 });
+        }
+
+        if (errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('exhausted')) {
+            return NextResponse.json({
+                error: 'The AI service is temporarily overloaded. Please try again in a few seconds.',
+                code: 'SERVICE_OVERLOADED',
+                isWarning: true,
+            }, { status: 503 });
+        }
+
+        if (errorMessage.includes('401') || errorMessage.includes('API key')) {
+            return NextResponse.json({
+                error: 'Service configuration error. Please contact support.',
+                code: 'AUTH_ERROR',
+            }, { status: 500 });
+        }
+
+        return NextResponse.json({
+            error: error.message || 'Chat failed. Please try again.',
+            code: 'INTERNAL_ERROR',
+        }, { status: 500 });
     }
 }
 

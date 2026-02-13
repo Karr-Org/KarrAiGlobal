@@ -14,8 +14,11 @@ import {
     rewriteQuery,
     buildMultiTurnMessages,
     summarizeConversation,
+    sanitizeUserInput,
+    isConversationalQuery,
     STRICT_MODE_PROMPT,
     EXTENDED_MODE_PROMPT,
+    IDENTITY_PROTECTION_BLOCK,
     ConversationMessage
 } from '@/lib/conversation-intelligence';
 
@@ -192,13 +195,20 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get query embedding
-        const queryEmbedding = await getEmbedding(query);
-        if (queryEmbedding.length === 0) {
-            return NextResponse.json(
-                { error: 'Failed to process query' },
-                { status: 500 }
-            );
+        // Sanitize input against prompt injection
+        const sanitizedQuery = sanitizeUserInput(query);
+        const isConversational = isConversationalQuery(sanitizedQuery);
+
+        // Skip embedding for conversational queries (saves API call)
+        let queryEmbedding: number[] = [];
+        if (!isConversational) {
+            queryEmbedding = await getEmbedding(sanitizedQuery);
+            if (queryEmbedding.length === 0) {
+                return NextResponse.json(
+                    { error: 'Failed to process query' },
+                    { status: 500 }
+                );
+            }
         }
 
         // Get product user info
@@ -306,8 +316,8 @@ export async function POST(request: NextRequest) {
         let kbWasEmpty = allChunks.length === 0; // Track if KB had no results
 
         try {
-            // Only auto-trigger if KB is truly empty (0 results) - not just sparse
-            const shouldSearchWeb = enableWebSearch || allChunks.length === 0;
+            // Only auto-trigger if KB is truly empty AND the query is substantive (not a greeting)
+            const shouldSearchWeb = enableWebSearch || (allChunks.length === 0 && !isConversational);
 
             if (shouldSearchWeb) {
                 console.log(`[UserChat] Triggering live web search... (explicit: ${enableWebSearch}, KB empty: ${allChunks.length === 0})`);

@@ -121,6 +121,43 @@ export class OKSEEngine {
 
         const config = PIPELINE_CONFIGS[classification.level];
 
+        // Short-circuit: CONVERSATIONAL queries skip all retrieval
+        if (classification.level === 'CONVERSATIONAL') {
+            console.log('[OKSE] Conversational query — skipping KB/Web/CRAG, generating direct response');
+            pipelineSteps.push('conversational:direct');
+
+            const directPrompt = `You are a helpful, friendly AI assistant. Respond naturally and warmly to this message. Do NOT search any knowledge base or cite sources. Keep it brief and conversational.\n\nUser: ${query}`;
+
+            let answer: string;
+            try {
+                answer = await generateContentWithGeminiFlash(directPrompt, {
+                    temperature: 0.8,
+                    maxOutputTokens: 300,
+                });
+            } catch {
+                answer = "Hello! I'm here to help. What would you like to know?";
+            }
+
+            return {
+                answer,
+                citations: [],
+                sources_used: [],
+                metadata: {
+                    complexity_level: 'CONVERSATIONAL',
+                    pipeline_used: pipelineSteps,
+                    cache_hit: false,
+                    retrieval_time_ms: 0,
+                    generation_time_ms: Date.now() - startTime,
+                    total_time_ms: Date.now() - startTime,
+                    crag_verdict: null,
+                    confidence: 1.0,
+                    drafts_generated: 0,
+                    web_sources_used: 0,
+                    kb_sources_used: 0,
+                },
+            };
+        }
+
         // Step 2: Check semantic cache (if enabled)
         if (config.use_semantic_cache && !options?.skipCache) {
             const cacheHit = await semanticCache.lookup(query, productId, options?.userId);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Send,
     Mic,
@@ -12,9 +12,11 @@ import {
     Mail,
     FileText,
     Copy,
+    Check,
     Sparkles,
     ArrowLeft,
-    Menu
+    Menu,
+    Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 import { generatePresentation } from '@/lib/gamma/generator';
@@ -32,6 +34,7 @@ interface Message {
     isStreaming?: boolean;
     presentation?: GammaPresentation;
     generationTopic?: string;
+    error?: boolean;
 }
 
 interface Source {
@@ -45,14 +48,29 @@ interface ChatInterfaceProps {
     productId: string;
     productName: string;
     userId?: string;
+    sessionId?: string;
+    /** Optional suggested queries; if not provided, no suggestions shown */
+    suggestedQueries?: string[];
+    /** Optional placeholder text for the input */
+    placeholder?: string;
+    /** Optional welcome message; if not provided, a generic one is used */
+    welcomeMessage?: string;
 }
 
-export function ChatInterface({ productId, productName, userId }: ChatInterfaceProps) {
+export function ChatInterface({
+    productId,
+    productName,
+    userId,
+    sessionId: initialSessionId,
+    suggestedQueries,
+    placeholder,
+    welcomeMessage,
+}: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([
         {
             id: '1',
             role: 'assistant',
-            content: `Welcome to ${productName}! 👋\n\nI'm your AI assistant for all GST-related queries. I can help you with:\n\n• **GST rates and classifications**\n• **Input Tax Credit (ITC) rules**\n• **Returns filing (GSTR-1, GSTR-3B, etc.)**\n• **Compliance requirements**\n• **Circulars and notifications**\n\nHow can I assist you today?`,
+            content: welcomeMessage || `Welcome! 👋\n\nI'm your AI assistant for **${productName}**. How can I help you today?`,
             timestamp: new Date(),
         }
     ]);
@@ -61,6 +79,8 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
     const [showSidebar, setShowSidebar] = useState(false);
     const [viewingPresentation, setViewingPresentation] = useState<GammaPresentation | null>(null);
     const [viewerMode, setViewerMode] = useState<'view' | 'edit'>('view');
+    const [copied, setCopied] = useState<string | null>(null);
+    const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -70,6 +90,13 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
 
     useEffect(() => {
         scrollToBottom();
+    }, [messages]);
+
+    // Build conversation history for the API
+    const getConversationHistory = useCallback(() => {
+        return messages
+            .filter(m => m.id !== '1') // Skip welcome message
+            .map(m => ({ role: m.role, content: m.content }));
     }, [messages]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -84,6 +111,7 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
         };
 
         setMessages(prev => [...prev, userMessage]);
+        const currentInput = input.trim();
         setInput('');
         setIsLoading(true);
 
@@ -137,7 +165,8 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                             ...m,
                             content: 'Sorry, I encountered an error while generating the presentation. Please try again.',
                             isStreaming: false,
-                            generationTopic: undefined
+                            generationTopic: undefined,
+                            error: true
                         };
                     }
                     return m;
@@ -148,32 +177,79 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
             return;
         }
 
-        // Simulate AI response (in production, this calls the actual API)
-        setTimeout(() => {
+        // Real API call
+        const assistantId = (Date.now() + 1).toString();
+
+        try {
+            const conversationHistory = getConversationHistory();
+
+            const response = await fetch('/api/chat/user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: currentInput,
+                    productId,
+                    userId: userId || undefined,
+                    sessionId: sessionId || undefined,
+                    conversationHistory,
+                    enableWebSearch: false,
+                    enableExtendedKnowledge: false,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `Server error (${response.status})`);
+            }
+
+            // Extract session ID if returned
+            if (data.sessionId && !sessionId) {
+                setSessionId(data.sessionId);
+            }
+
+            // Map sources from API response
+            const apiSources: Source[] = (data.sources || []).map((s: any, i: number) => ({
+                title: s.title || s.document_title || `Source ${i + 1}`,
+                type: s.type || s.source_type || 'KB',
+                authorityLevel: s.authority_level || s.similarity || 0.8,
+                preview: s.excerpt || s.content?.substring(0, 150) || '',
+            }));
+
             const assistantMessage: Message = {
-                id: (Date.now() + 1).toString(),
+                id: assistantId,
                 role: 'assistant',
-                content: generateMockResponse(userMessage.content),
+                content: data.answer || data.response || 'I was unable to generate a response.',
                 timestamp: new Date(),
-                confidence: 0.92,
-                sources: [
-                    {
-                        title: 'CGST Act, 2017 - Section 16',
-                        type: 'Act',
-                        authorityLevel: 10,
-                        preview: 'Subject to section 49, every registered person shall...',
-                    },
-                    {
-                        title: 'Circular No. 184/16/2022-GST',
-                        type: 'Circular',
-                        authorityLevel: 8,
-                        preview: 'Clarification on issues related to ITC claims...',
-                    },
-                ],
+                confidence: data.confidence || data.metadata?.confidence || null,
+                sources: apiSources.length > 0 ? apiSources : undefined,
             };
+
             setMessages(prev => [...prev, assistantMessage]);
+        } catch (error: any) {
+            console.error('[ChatInterface] API error:', error);
+
+            // Determine error type for user-friendly message
+            let errorContent = 'I encountered an error processing your request. Please try again.';
+            if (error.message?.includes('429') || error.message?.includes('rate')) {
+                errorContent = '⚠️ Too many requests. Please wait a moment and try again.';
+            } else if (error.message?.includes('503') || error.message?.includes('exhausted')) {
+                errorContent = '⚠️ The service is temporarily overloaded. Please try again in a few seconds.';
+            } else if (error.message?.includes('timeout') || error.message?.includes('network')) {
+                errorContent = '⚠️ Network error. Please check your connection and try again.';
+            }
+
+            const errorMessage: Message = {
+                id: assistantId,
+                role: 'assistant',
+                content: errorContent,
+                timestamp: new Date(),
+                error: true,
+            };
+            setMessages(prev => [...prev, errorMessage]);
+        } finally {
             setIsLoading(false);
-        }, 1500);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -183,12 +259,11 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
         }
     };
 
-    const suggestedQueries = [
-        "What is the GST rate for restaurant services?",
-        "How to claim ITC on capital goods?",
-        "When is GSTR-3B due date?",
-        "Can I claim ITC on office rent?"
-    ];
+    const copyToClipboard = (text: string, id: string) => {
+        navigator.clipboard.writeText(text);
+        setCopied(id);
+        setTimeout(() => setCopied(null), 2000);
+    };
 
     return (
         <div className="flex h-full bg-gray-50">
@@ -257,6 +332,8 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                             <MessageBubble
                                 key={message.id}
                                 message={message}
+                                onCopy={copyToClipboard}
+                                copied={copied}
                                 onViewPresentation={(p) => {
                                     setViewingPresentation(p);
                                     setViewerMode('view');
@@ -264,22 +341,21 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                             />
                         ))}
 
-                        {isLoading && (
+                        {isLoading && !messages.some(m => m.isStreaming) && (
                             <div className="flex gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center flex-shrink-0">
                                     <Sparkles className="w-4 h-4 text-white" />
                                 </div>
                                 <div className="bg-white rounded-2xl rounded-tl-none px-4 py-3 shadow-sm border">
-                                    <div className="flex gap-1">
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>Thinking...</span>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {messages.length === 1 && (
+                        {messages.length === 1 && suggestedQueries && suggestedQueries.length > 0 && (
                             <div className="mt-8">
                                 <p className="text-sm text-gray-500 mb-3">Try asking:</p>
                                 <div className="flex flex-wrap gap-2">
@@ -318,7 +394,7 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={handleKeyDown}
-                                    placeholder="Ask anything about GST..."
+                                    placeholder={placeholder || `Ask anything about ${productName}...`}
                                     rows={1}
                                     className="w-full resize-none rounded-2xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     style={{ maxHeight: '120px' }}
@@ -337,7 +413,7 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
                                 disabled={!input.trim() || isLoading}
                                 className="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
-                                <Send className="w-5 h-5" />
+                                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                             </button>
                         </div>
 
@@ -373,7 +449,16 @@ export function ChatInterface({ productId, productName, userId }: ChatInterfaceP
     );
 }
 
-function MessageBubble({ message, onViewPresentation }: { message: Message; onViewPresentation: (p: GammaPresentation) => void }) {
+// ============================================================================
+// MESSAGE BUBBLE COMPONENT
+// ============================================================================
+
+function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
+    message: Message;
+    onViewPresentation: (p: GammaPresentation) => void;
+    onCopy: (text: string, id: string) => void;
+    copied: string | null;
+}) {
     const [showSources, setShowSources] = useState(false);
     const isUser = message.role === 'user';
 
@@ -395,10 +480,12 @@ function MessageBubble({ message, onViewPresentation }: { message: Message; onVi
             <div className={`max-w-[80%] ${isUser ? 'text-right' : ''}`}>
                 <div className={`inline-block rounded-2xl px-4 py-3 ${isUser
                     ? 'bg-primary-600 text-white rounded-tr-none'
-                    : 'bg-white shadow-sm border rounded-tl-none'
+                    : message.error
+                        ? 'bg-red-50 border border-red-200 rounded-tl-none text-red-800'
+                        : 'bg-white shadow-sm border rounded-tl-none'
                     }`}>
-                    <div className="text-sm whitespace-pre-wrap prose prose-sm max-w-none">
-                        {formatContent(message.content)}
+                    <div className="text-sm whitespace-pre-wrap">
+                        <MarkdownContent content={message.content} isUser={isUser} />
                     </div>
 
                     {message.isStreaming && message.generationTopic && (
@@ -414,9 +501,6 @@ function MessageBubble({ message, onViewPresentation }: { message: Message; onVi
                                 onOpenViewer={() => onViewPresentation(message.presentation!)}
                                 onEdit={() => {
                                     onViewPresentation(message.presentation!);
-                                    // Mode will be set by the parent handler if logic allows, 
-                                    // or passing specific mode callback needed.
-                                    // For now GammaChatCard just opens viewer.
                                 }}
                             />
                         </div>
@@ -424,45 +508,53 @@ function MessageBubble({ message, onViewPresentation }: { message: Message; onVi
                 </div>
 
                 {/* Sources & Actions for Assistant */}
-                {!isUser && message.sources && message.sources.length > 0 && (
+                {!isUser && !message.error && (
                     <div className="mt-2 space-y-2">
                         {/* Sources Toggle */}
-                        <button
-                            onClick={() => setShowSources(!showSources)}
-                            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
-                        >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Sources ({message.sources.length})</span>
-                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-180' : ''}`} />
-                        </button>
+                        {message.sources && message.sources.length > 0 && (
+                            <>
+                                <button
+                                    onClick={() => setShowSources(!showSources)}
+                                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span>Sources ({message.sources.length})</span>
+                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-180' : ''}`} />
+                                </button>
 
-                        {/* Sources List */}
-                        {showSources && (
-                            <div className="space-y-2 animate-fade-in">
-                                {message.sources.map((source, i) => (
-                                    <div key={i} className="bg-gray-50 rounded-lg p-3 text-xs">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-medium text-gray-900">{source.title}</span>
-                                            <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">
-                                                {source.type}
-                                            </span>
-                                        </div>
-                                        <p className="text-gray-500 line-clamp-2">{source.preview}</p>
+                                {/* Sources List */}
+                                {showSources && (
+                                    <div className="space-y-2 animate-fade-in">
+                                        {message.sources.map((source, i) => (
+                                            <div key={i} className="bg-gray-50 rounded-lg p-3 text-xs">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="font-medium text-gray-900">{source.title}</span>
+                                                    <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">
+                                                        {source.type}
+                                                    </span>
+                                                </div>
+                                                <p className="text-gray-500 line-clamp-2">{source.preview}</p>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                )}
+                            </>
                         )}
 
                         {/* Action Buttons */}
                         <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => onCopy(message.content, message.id)}
+                                className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                                title="Copy"
+                            >
+                                {copied === message.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                            </button>
                             <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Email this">
                                 <Mail className="w-4 h-4" />
                             </button>
                             <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Export PDF">
                                 <FileText className="w-4 h-4" />
-                            </button>
-                            <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Copy">
-                                <Copy className="w-4 h-4" />
                             </button>
                             <div className="w-px h-4 bg-gray-200 mx-1" />
                             <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-green-600" title="Helpful">
@@ -485,104 +577,185 @@ function MessageBubble({ message, onViewPresentation }: { message: Message; onVi
     );
 }
 
-function formatContent(content: string): React.ReactNode {
-    // Simple markdown-like formatting with XSS protection
-    return content.split('\n').map((line, i) => {
-        // Escape HTML entities first to prevent XSS
-        line = line
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-        // Then apply safe formatting (bold only)
-        line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // Bullet points
-        if (line.startsWith('• ')) {
-            return <div key={i} className="flex gap-2"><span>•</span><span dangerouslySetInnerHTML={{ __html: line.slice(2) }} /></div>;
+// ============================================================================
+// MARKDOWN RENDERER (proper, no dangerouslySetInnerHTML)
+// ============================================================================
+
+function MarkdownContent({ content, isUser }: { content: string; isUser?: boolean }) {
+    if (!content) return null;
+
+    const lines = content.split('\n');
+    const elements: React.ReactNode[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+
+        // Code block
+        if (line.startsWith('```')) {
+            const lang = line.slice(3).trim();
+            const codeLines: string[] = [];
+            i++;
+            while (i < lines.length && !lines[i].startsWith('```')) {
+                codeLines.push(lines[i]);
+                i++;
+            }
+            i++; // skip closing ```
+            elements.push(
+                <pre key={elements.length} className="bg-gray-900 text-green-400 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono">
+                    <code>{codeLines.join('\n')}</code>
+                </pre>
+            );
+            continue;
         }
-        return <div key={i} dangerouslySetInnerHTML={{ __html: line || '&nbsp;' }} />;
-    });
+
+        // Heading ##
+        if (line.startsWith('## ')) {
+            elements.push(
+                <h3 key={elements.length} className="font-bold text-base mt-3 mb-1">
+                    {renderInline(line.slice(3))}
+                </h3>
+            );
+            i++;
+            continue;
+        }
+
+        // Heading ###
+        if (line.startsWith('### ')) {
+            elements.push(
+                <h4 key={elements.length} className="font-semibold text-sm mt-2 mb-1">
+                    {renderInline(line.slice(4))}
+                </h4>
+            );
+            i++;
+            continue;
+        }
+
+        // Bullet points (-, *, •)
+        if (/^[\-\*•]\s/.test(line)) {
+            elements.push(
+                <div key={elements.length} className="flex gap-2 ml-1">
+                    <span className="text-gray-400 select-none">•</span>
+                    <span>{renderInline(line.replace(/^[\-\*•]\s/, ''))}</span>
+                </div>
+            );
+            i++;
+            continue;
+        }
+
+        // Numbered lists
+        if (/^\d+[\.\)]\s/.test(line)) {
+            const num = line.match(/^(\d+)[\.\)]\s/)?.[1];
+            const text = line.replace(/^\d+[\.\)]\s/, '');
+            elements.push(
+                <div key={elements.length} className="flex gap-2 ml-1">
+                    <span className="text-gray-400 select-none min-w-[1.2em]">{num}.</span>
+                    <span>{renderInline(text)}</span>
+                </div>
+            );
+            i++;
+            continue;
+        }
+
+        // Empty line = spacing
+        if (line.trim() === '') {
+            elements.push(<div key={elements.length} className="h-2" />);
+            i++;
+            continue;
+        }
+
+        // Regular paragraph
+        elements.push(
+            <div key={elements.length}>
+                {renderInline(line)}
+            </div>
+        );
+        i++;
+    }
+
+    return <>{elements}</>;
 }
 
-function generateMockResponse(query: string): string {
-    const lowerQuery = query.toLowerCase();
+/**
+ * Render inline markdown: **bold**, *italic*, `code`, [links](url), [Source N] citations
+ */
+function renderInline(text: string): React.ReactNode {
+    if (!text) return null;
 
-    if (lowerQuery.includes('itc') || lowerQuery.includes('input tax credit') || lowerQuery.includes('office rent')) {
-        return `Yes, you can claim **Input Tax Credit (ITC)** on office rent, subject to the following conditions:
+    // Split by inline patterns
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+    let key = 0;
 
-**Eligibility Criteria:**
-• The rent must be for **business purposes**
-• You must have a valid **tax invoice** from the landlord
-• The landlord must be GST-registered if their turnover exceeds ₹20 lakhs
-• The property should not be used for personal purposes
+    while (remaining.length > 0) {
+        // Bold: **text**
+        const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+        // Italic: *text* (but not **)
+        const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/);
+        // Inline code: `text`
+        const codeMatch = remaining.match(/`([^`]+)`/);
+        // Link: [text](url)
+        const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/);
+        // Citation: [Source N] or [N]
+        const citationMatch = remaining.match(/\[(Source\s+\d+|\d+)\]/);
 
-**Key Points:**
-• ITC is available under Section 16 of CGST Act
-• Commercial rent attracts **18% GST**
-• Ensure the landlord's GSTIN is valid and active
-• ITC must be claimed within the due date of filing September return of the following year
+        // Find the earliest match
+        const matches = [
+            boldMatch ? { type: 'bold', match: boldMatch } : null,
+            italicMatch ? { type: 'italic', match: italicMatch } : null,
+            codeMatch ? { type: 'code', match: codeMatch } : null,
+            linkMatch ? { type: 'link', match: linkMatch } : null,
+            citationMatch ? { type: 'citation', match: citationMatch } : null,
+        ].filter(Boolean) as { type: string; match: RegExpMatchArray }[];
 
-**Documentation Required:**
-• GST-compliant tax invoice
-• Rent agreement
-• Bank payment proof (for amounts > ₹50,000)
+        if (matches.length === 0) {
+            parts.push(remaining);
+            break;
+        }
 
-Would you like me to help you with anything specific about ITC claims?`;
+        // Sort by position (earliest first)
+        matches.sort((a, b) => (a.match.index || 0) - (b.match.index || 0));
+        const earliest = matches[0];
+        const idx = earliest.match.index || 0;
+
+        // Text before the match
+        if (idx > 0) {
+            parts.push(remaining.substring(0, idx));
+        }
+
+        switch (earliest.type) {
+            case 'bold':
+                parts.push(<strong key={key++}>{earliest.match[1]}</strong>);
+                break;
+            case 'italic':
+                parts.push(<em key={key++}>{earliest.match[1]}</em>);
+                break;
+            case 'code':
+                parts.push(
+                    <code key={key++} className="bg-gray-100 text-pink-600 px-1.5 py-0.5 rounded text-xs font-mono">
+                        {earliest.match[1]}
+                    </code>
+                );
+                break;
+            case 'link':
+                parts.push(
+                    <a key={key++} href={earliest.match[2]} target="_blank" rel="noopener noreferrer"
+                        className="text-primary-600 hover:underline">
+                        {earliest.match[1]}
+                    </a>
+                );
+                break;
+            case 'citation':
+                parts.push(
+                    <span key={key++} className="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full font-medium">
+                        [{earliest.match[1]}]
+                    </span>
+                );
+                break;
+        }
+
+        remaining = remaining.substring(idx + earliest.match[0].length);
     }
 
-    if (lowerQuery.includes('rate') || lowerQuery.includes('restaurant')) {
-        return `**GST Rates for Restaurant Services:**
-
-The GST rate depends on the type of restaurant:
-
-**5% GST (without ITC):**
-• Standalone restaurants (not in hotels with room tariff ≥ ₹7,500)
-• Takeaway food
-• Food delivery through apps
-
-**18% GST (with ITC):**
-• Restaurants in hotels with room tariff ≥ ₹7,500
-• Outdoor catering services
-
-**Note:** Most restaurants operate under the 5% composition scheme where ITC cannot be claimed.
-
-Would you like more details on any specific scenario?`;
-    }
-
-    if (lowerQuery.includes('gstr-3b') || lowerQuery.includes('due date')) {
-        return `**GSTR-3B Due Dates:**
-
-GSTR-3B is a monthly/quarterly summary return. Here are the due dates:
-
-**Monthly Filers:**
-• Due by **20th of the following month**
-• Example: January 2026 GSTR-3B due by February 20, 2026
-
-**Quarterly Filers (QRMP Scheme):**
-• Due by **22nd/24th of the month following the quarter**
-• 22nd for taxpayers in Category I states
-• 24th for taxpayers in Category II states
-
-**Late Fee:**
-• ₹50 per day (₹25 CGST + ₹25 SGST)
-• Maximum ₹10,000 per return
-• Nil returns: ₹20 per day (max ₹500)
-
-**Interest on Late Payment:**
-• 18% per annum on tax liability
-
-Would you like me to help with filing GSTR-3B?`;
-    }
-
-    return `Thank you for your question about: "${query}"
-
-I can help you with GST-related queries including:
-• GST rates and classifications
-• ITC (Input Tax Credit) rules
-• Return filing procedures
-• Compliance requirements
-• Latest circulars and notifications
-
-Could you please provide more specific details about your query so I can give you a more accurate answer?`;
+    return <>{parts}</>;
 }

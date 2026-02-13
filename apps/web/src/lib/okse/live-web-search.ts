@@ -452,12 +452,14 @@ async function getTrustedDomains(productId: string): Promise<string[]> {
             }
         }
 
-        // FALLBACK: Use default trusted domains if no product-specific ones
-        console.log('[OKSE] No product-specific domains, using DEFAULT_TRUSTED_DOMAINS');
-        return DEFAULT_TRUSTED_DOMAINS;
+        // No product-specific domains configured — do NOT fall back to hardcoded defaults
+        // The search function will safely refuse to search the internet without trusted domains
+        console.warn('[OKSE] No product-specific trusted domains configured. Web search will be skipped.');
+        console.warn('[OKSE] To enable web search, configure trusted domains in Knowledge Sources → Trusted Web.');
+        return [];
     } catch (error) {
-        console.error('[OKSE] Error getting trusted domains, using defaults:', error);
-        return DEFAULT_TRUSTED_DOMAINS;
+        console.error('[OKSE] Error getting trusted domains:', error);
+        return [];
     }
 }
 
