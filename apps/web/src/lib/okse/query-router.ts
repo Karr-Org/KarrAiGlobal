@@ -33,18 +33,40 @@ function applyRules(query: string): RuleResult {
 
     // Rule 0: Conversational queries (greetings, thanks, meta) — NO KB search needed
     const conversationalPatterns = [
-        /^(hi|hello|hey|howdy|greetings|yo|sup)\b/i,
-        /^good\s+(morning|afternoon|evening|night)\b/i,
-        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going)\b/i,
-        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great))\b/i,
-        /^(thanks?|thank\s+you|thx|cheers|appreciated)\b/i,
-        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright)\s*[.!]?\s*$/i,
-        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work)\s*\??\s*$/i,
+        // Greetings (expanded)
+        /^(hi|hello|hey|howdy|greetings|yo|sup|hola|namaste|hii+|helo+|heya?)\b/i,
+        /^good\s+(morning|afternoon|evening|night|day)\b/i,
+        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going|how\s+do\s+you\s+do)\b/i,
+        /^(hey\s+there|hi\s+there|hello\s+there)\s*[.!]?\s*$/i,
+        // Farewells
+        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great)|good\s*bye|later|cya|ttyl)\b/i,
+        // Acknowledgements & short responses
+        /^(thanks?|thank\s+you|thx|cheers|appreciated|ty|tysm|much\s+appreciated)\b/i,
+        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright|noted|yep|yup|yeah|yes|no|nope|nah|right|correct|absolutely|exactly|indeed|agreed)\s*[.!?]?\s*$/i,
+        // Meta / about the AI
+        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work|what\s+is\s+your\s+name)\s*\??\s*$/i,
         /^help\s*$/i,
+        // Pleasantries & small talk
+        /^(how\s+was\s+your\s+day|nice\s+to\s+meet\s+you|pleased\s+to\s+meet\s+you)\b/i,
+        /^(that'?s?\s+(great|awesome|cool|nice|good|helpful|perfect|amazing))\s*[.!]?\s*$/i,
+        /^(i\s+see|makes\s+sense|i\s+understand|no\s+worries|no\s+problem|all\s+good|sounds\s+good)\s*[.!]?\s*$/i,
     ];
+
+    // Emoji-only or very short non-question messages (1-2 chars)
+    if (normalizedQuery.length <= 2 || /^[\p{Emoji}\s]+$/u.test(query.trim())) {
+        return { level: 'CONVERSATIONAL', confidence: 1.0, reason: 'Very short or emoji-only message' };
+    }
 
     if (conversationalPatterns.some(p => p.test(query))) {
         return { level: 'CONVERSATIONAL', confidence: 1.0, reason: 'Greeting, farewell, or meta-question — no KB search needed' };
+    }
+
+    // Short single-word non-question messages that aren't domain terms
+    if (wordCount === 1 && !normalizedQuery.includes('?')) {
+        const domainTerms = /^(gst|tax|itc|tds|income|itr|filing|invoice|challan|refund|cess|hsn|sac|gstr|audit)\b/i;
+        if (!domainTerms.test(normalizedQuery)) {
+            return { level: 'CONVERSATIONAL', confidence: 0.85, reason: 'Single non-domain word without question mark' };
+        }
     }
 
     // Rule 1: Multi-hop indicators

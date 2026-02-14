@@ -142,6 +142,34 @@ export async function POST(request: NextRequest) {
         // ============================================================================
         console.log(`[Chat] Legacy Mode - Processing query for product ${productId}: ${query.substring(0, 100)}...`);
 
+        // 0. Conversational short-circuit: skip KB/web for greetings, thanks, meta
+        if (isConversationalQuery(query)) {
+            console.log('[Chat] Conversational query detected — skipping KB search');
+            const directAnswer = await generateGeminiResponse(
+                query,
+                '', // no context needed
+                false,
+                'This is a conversational message (greeting, thanks, or meta-question). Respond naturally and warmly. Do NOT cite any sources or knowledge base. Keep it brief and friendly.'
+            );
+
+            return NextResponse.json({
+                answer: directAnswer,
+                sources: [],
+                citations: [],
+                confidence: 1.0,
+                sourcesUsed: 0,
+                federatedSearch: false,
+                reasoning: {
+                    verdict: 'CONVERSATIONAL',
+                    confidence: 1.0,
+                    correctionApplied: null,
+                    webSupplementUsed: false,
+                    evaluatedSources: 0,
+                    sourceTypes: [],
+                },
+            });
+        }
+
         // 1. Generate embedding for the query using Gemini
         const queryEmbedding = await generateGeminiEmbedding(query);
 
@@ -408,6 +436,34 @@ async function generateGeminiEmbedding(text: string): Promise<number[]> {
     }
 
     throw new Error('Failed to generate embedding after retries');
+}
+
+// Detect conversational queries that don't need KB/web search
+function isConversationalQuery(query: string): boolean {
+    const q = query.trim();
+    const conversationalPatterns = [
+        // Greetings
+        /^(hi|hello|hey|howdy|greetings|yo|sup|hola|namaste)\b/i,
+        /^good\s+(morning|afternoon|evening|night)\b/i,
+        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going)\b/i,
+        // Farewells
+        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great))\b/i,
+        // Acknowledgements
+        /^(thanks?|thank\s+you|thx|cheers|appreciated|ty)\b/i,
+        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright|noted|yep|yup|yes|no|nope)\s*[.!?]?\s*$/i,
+        // Meta / about the AI
+        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work)\s*\??\s*$/i,
+        /^help\s*$/i,
+        // Very short non-question messages (1-2 words, no question mark)
+        /^[a-z]{1,12}\s*[.!]?\s*$/i,
+    ];
+
+    // Also catch emoji-only or very short pleasantries
+    if (q.length <= 2 || /^[\p{Emoji}\s]+$/u.test(q)) {
+        return true;
+    }
+
+    return conversationalPatterns.some(p => p.test(q));
 }
 
 // Generate chat response using Gemini

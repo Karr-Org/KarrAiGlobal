@@ -227,8 +227,9 @@ export class OKSEEngine {
 
             console.log('[OKSE] CRAG verdict:', cragVerdict, 'Confidence:', cragResult.confidence);
 
-            // If IRRELEVANT or if explicitly requested, trigger live web search
-            const shouldLiveSearch = (cragVerdict === 'IRRELEVANT' || options?.enableLiveWeb) && config.use_live_web;
+            // Live web search only when pipeline config allows it for this complexity level
+            // AND either CRAG says context is irrelevant, or caller explicitly requested it
+            const shouldLiveSearch = config.use_live_web && (cragVerdict === 'IRRELEVANT' || options?.enableLiveWeb === true);
 
             if (shouldLiveSearch) {
                 console.log('[OKSE] Triggering live web search (Verdict: ' + cragVerdict + ', Explicit: ' + options?.enableLiveWeb + ')');
