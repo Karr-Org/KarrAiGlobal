@@ -245,6 +245,8 @@ export async function POST(request: NextRequest) {
 
         const allChunks: ContextChunk[] = [];
 
+        // Skip KB searches entirely for conversational queries (embedding is empty anyway)
+        if (!isConversational) {
         // ============================================
         // 1. GLOBAL PRODUCT KNOWLEDGE
         // ============================================
@@ -306,6 +308,7 @@ export async function POST(request: NextRequest) {
                 });
             });
         }
+        } // end: skip KB searches for conversational queries
 
         // ============================================
         // 2.5. LIVE WEB SEARCH (OKSE Integration)

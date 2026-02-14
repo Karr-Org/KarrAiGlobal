@@ -69,6 +69,23 @@ function applyRules(query: string): RuleResult {
         }
     }
 
+    // Rule 0.5: General knowledge — tight whitelist of clearly off-topic patterns
+    // These ONLY match queries that are obviously unrelated to ANY product domain
+    const generalKnowledgePatterns = [
+        /^(what\s+is\s+)?\d+[\s]*[+\-*/×÷%^]\s*\d+/i,                                    // Math: "2+2", "what is 5*3"
+        /^calculate\s+\d/i,                                                                 // "calculate 500..."
+        /^(how\s+much\s+is\s+)?\d+(\.\d+)?\s*%\s+(of|from)\s+\d/i,                         // "18% of 5000"
+        /^what\s+(time|day|date)\s+is\s+it/i,                                               // "what time is it"
+        /^translate\s+.+\s+to\s+\w+/i,                                                      // "translate hello to Hindi"
+        /^why\s+(is|are)\s+the\s+(sky|sun|moon|ocean|grass|earth)\b/i,                       // "why is the sky blue"
+        /^(what\s+is\s+the\s+capital\s+of|where\s+is\s+\w+\s+(located|situated))\b/i,       // "capital of France"
+        /^who\s+(won|scored|played)\s+(the|in)\s+(world\s+cup|olympics|super\s+bowl|oscars)/i, // "who won the world cup"
+    ];
+
+    if (generalKnowledgePatterns.some(p => p.test(query))) {
+        return { level: 'GENERAL_KNOWLEDGE', confidence: 0.95, reason: 'Clearly off-topic general knowledge query (math, trivia, utility)' };
+    }
+
     // Rule 1: Multi-hop indicators
     const multiHopPatterns = [
         /\bcompare\b/i,
@@ -157,6 +174,12 @@ CONVERSATIONAL: Greetings, farewells, acknowledgements, or questions about the A
 - "Thanks!"
 - "Who are you?"
 
+GENERAL_KNOWLEDGE: Pure math, science trivia, geography, sports, translation — clearly unrelated to any product domain
+- "What is 2+2?"
+- "Why is the sky blue?"
+- "Translate hello to Hindi"
+- "What is the capital of France?"
+
 SIMPLE: Definition lookups, single fact queries, rate/deadline inquiries
 - "What is GST?"
 - "GST rate on coffee"
@@ -181,7 +204,7 @@ Query: "{query}"
 
 Respond in JSON format:
 {
-  "level": "SIMPLE" | "MODERATE" | "COMPLEX" | "MULTI_HOP",
+  "level": "GENERAL_KNOWLEDGE" | "SIMPLE" | "MODERATE" | "COMPLEX" | "MULTI_HOP",
   "reasoning": "Brief explanation",
   "sub_queries": ["Only for MULTI_HOP: decomposed sub-queries"]
 }`;
@@ -221,6 +244,7 @@ async function classifyWithLLM(query: string): Promise<QueryClassification> {
 function getEstimatedSources(level: QueryComplexityLevel): number {
     switch (level) {
         case 'CONVERSATIONAL': return 0;
+        case 'GENERAL_KNOWLEDGE': return 0;
         case 'SIMPLE': return 2;
         case 'MODERATE': return 5;
         case 'COMPLEX': return 8;

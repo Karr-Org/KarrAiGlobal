@@ -142,14 +142,19 @@ export async function POST(request: NextRequest) {
         // ============================================================================
         console.log(`[Chat] Legacy Mode - Processing query for product ${productId}: ${query.substring(0, 100)}...`);
 
-        // 0. Conversational short-circuit: skip KB/web for greetings, thanks, meta
-        if (isConversationalQuery(query)) {
-            console.log('[Chat] Conversational query detected — skipping KB search');
+        // 0. Short-circuit: skip KB/web for conversational + general knowledge queries
+        const nonKBResult = classifyNonKBQuery(query);
+        if (nonKBResult) {
+            console.log(`[Chat] ${nonKBResult.type} query detected — skipping KB search`);
+            const systemHint = nonKBResult.type === 'CONVERSATIONAL'
+                ? 'This is a conversational message (greeting, thanks, or meta-question). Respond naturally and warmly. Do NOT cite any sources or knowledge base. Keep it brief and friendly.'
+                : 'This is a general knowledge question (math, trivia, translation). Answer directly from your training data. Do NOT cite any sources or mention a knowledge base.';
+
             const directAnswer = await generateGeminiResponse(
                 query,
                 '', // no context needed
                 false,
-                'This is a conversational message (greeting, thanks, or meta-question). Respond naturally and warmly. Do NOT cite any sources or knowledge base. Keep it brief and friendly.'
+                systemHint
             );
 
             return NextResponse.json({
@@ -160,7 +165,7 @@ export async function POST(request: NextRequest) {
                 sourcesUsed: 0,
                 federatedSearch: false,
                 reasoning: {
-                    verdict: 'CONVERSATIONAL',
+                    verdict: nonKBResult.type,
                     confidence: 1.0,
                     correctionApplied: null,
                     webSupplementUsed: false,
@@ -438,32 +443,48 @@ async function generateGeminiEmbedding(text: string): Promise<number[]> {
     throw new Error('Failed to generate embedding after retries');
 }
 
-// Detect conversational queries that don't need KB/web search
-function isConversationalQuery(query: string): boolean {
+// Classify queries that don't need KB/web search (conversational + general knowledge)
+function classifyNonKBQuery(query: string): { type: 'CONVERSATIONAL' | 'GENERAL_KNOWLEDGE' } | null {
     const q = query.trim();
+
+    // Emoji-only or very short messages
+    if (q.length <= 2 || /^[\p{Emoji}\s]+$/u.test(q)) {
+        return { type: 'CONVERSATIONAL' };
+    }
+
     const conversationalPatterns = [
-        // Greetings
         /^(hi|hello|hey|howdy|greetings|yo|sup|hola|namaste)\b/i,
         /^good\s+(morning|afternoon|evening|night)\b/i,
         /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going)\b/i,
-        // Farewells
         /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great))\b/i,
-        // Acknowledgements
         /^(thanks?|thank\s+you|thx|cheers|appreciated|ty)\b/i,
         /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright|noted|yep|yup|yes|no|nope)\s*[.!?]?\s*$/i,
-        // Meta / about the AI
         /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work)\s*\??\s*$/i,
         /^help\s*$/i,
-        // Very short non-question messages (1-2 words, no question mark)
         /^[a-z]{1,12}\s*[.!]?\s*$/i,
     ];
 
-    // Also catch emoji-only or very short pleasantries
-    if (q.length <= 2 || /^[\p{Emoji}\s]+$/u.test(q)) {
-        return true;
+    if (conversationalPatterns.some(p => p.test(q))) {
+        return { type: 'CONVERSATIONAL' };
     }
 
-    return conversationalPatterns.some(p => p.test(q));
+    // Tight whitelist: clearly off-topic general knowledge (math, trivia, utility)
+    const generalKnowledgePatterns = [
+        /^(what\s+is\s+)?\d+[\s]*[+\-*/×÷%^]\s*\d+/i,
+        /^calculate\s+\d/i,
+        /^(how\s+much\s+is\s+)?\d+(\.\d+)?\s*%\s+(of|from)\s+\d/i,
+        /^what\s+(time|day|date)\s+is\s+it/i,
+        /^translate\s+.+\s+to\s+\w+/i,
+        /^why\s+(is|are)\s+the\s+(sky|sun|moon|ocean|grass|earth)\b/i,
+        /^(what\s+is\s+the\s+capital\s+of|where\s+is\s+\w+\s+(located|situated))\b/i,
+        /^who\s+(won|scored|played)\s+(the|in)\s+(world\s+cup|olympics|super\s+bowl|oscars)/i,
+    ];
+
+    if (generalKnowledgePatterns.some(p => p.test(q))) {
+        return { type: 'GENERAL_KNOWLEDGE' };
+    }
+
+    return null;
 }
 
 // Generate chat response using Gemini
