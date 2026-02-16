@@ -4,6 +4,7 @@ import { federatedSearch, buildContextFromResults, RichCitation } from '@/lib/kn
 import { evaluateWithCRAG, generateIDontKnow, CRAGResult } from '@/lib/knowledge/crag-evaluator';
 import { okseEngine, FormattedCitation } from '@/lib/okse';
 import { validateChatQuery } from '@/lib/validations';
+import { buildProtectedPrompt } from '@/lib/conversation-intelligence';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -501,7 +502,7 @@ async function generateGeminiResponse(
     // CRAG: Use system override if provided
     const additionalInstructions = systemOverride ? `\n\n${systemOverride}` : '';
 
-    const systemPrompt = `You are an expert AI assistant. You provide accurate, well-researched answers based on the provided knowledge base.
+    const systemPrompt = buildProtectedPrompt(`You are an expert AI assistant. You provide accurate, well-researched answers based on the provided knowledge base.
 
 IMPORTANT RULES:
 1. Base your answers ONLY on the provided context
@@ -514,7 +515,7 @@ IMPORTANT RULES:
 ${sourceNote}${additionalInstructions}
 
 Context from Knowledge Base:
-${context || 'No relevant context found.'}`;
+${context || 'No relevant context found.'}`);
 
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,

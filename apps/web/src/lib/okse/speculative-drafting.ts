@@ -10,6 +10,7 @@
  */
 
 import { generateContentWithGemini, generateContentWithGeminiFlash } from '@/lib/gemini';
+import { buildProtectedPrompt } from '@/lib/conversation-intelligence';
 import {
     Draft,
     DraftPerspective,
@@ -157,9 +158,9 @@ export class SpeculativeDraftingService {
         // Generate all 3 drafts in parallel using Gemini Flash
         const draftPromises = perspectives.map(async (perspective) => {
             const perspectiveStart = Date.now();
-            const prompt = DRAFT_PROMPTS[perspective]
+            const prompt = buildProtectedPrompt(DRAFT_PROMPTS[perspective]
                 .replace('{query}', query)
-                .replace('{context}', context);
+                .replace('{context}', context));
 
             try {
                 const content = await generateContentWithGeminiFlash(prompt, {
@@ -236,12 +237,14 @@ export class SpeculativeDraftingService {
             };
         }
 
-        const prompt = VERIFICATION_PROMPT
-            .replace('{query}', query)
-            .replace('{sources}', formatSourcesForVerification(sources))
-            .replace('{draft1}', drafts[0]?.content || 'Not available')
-            .replace('{draft2}', drafts[1]?.content || 'Not available')
-            .replace('{draft3}', drafts[2]?.content || 'Not available');
+        const prompt = buildProtectedPrompt(
+            VERIFICATION_PROMPT
+                .replace('{query}', query)
+                .replace('{sources}', formatSourcesForVerification(sources))
+                .replace('{draft1}', drafts[0]?.content || 'Not available')
+                .replace('{draft2}', drafts[1]?.content || 'Not available')
+                .replace('{draft3}', drafts[2]?.content || 'Not available')
+        );
 
         try {
             const response = await generateContentWithGemini(prompt, {

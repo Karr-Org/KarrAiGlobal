@@ -15,6 +15,7 @@ import { knowledgeFusion } from './knowledge-fusion';
 import { speculativeDrafting } from './speculative-drafting';
 import { liveWebSearch } from './live-web-search';
 import { generateContentWithGemini, generateContentWithGeminiFlash } from '@/lib/gemini';
+import { buildProtectedPrompt } from '@/lib/conversation-intelligence';
 import {
     OKSEResponse,
     QueryComplexityLevel,
@@ -34,7 +35,7 @@ interface CRAGEvalResult {
 
 async function evaluateCRAG(query: string, context: string): Promise<CRAGEvalResult> {
     try {
-        const prompt = `Evaluate how relevant the following context is to answering the query.
+        const prompt = buildProtectedPrompt(`Evaluate how relevant the following context is to answering the query.
 
 Query: ${query}
 
@@ -46,7 +47,7 @@ Rate the relevance:
 - AMBIGUOUS: Context partially addresses the query or needs supplementation (confidence 0.5-0.84)
 - IRRELEVANT: Context does not help answer the query (confidence 0-0.49)
 
-Respond in JSON: {"verdict": "RELEVANT|AMBIGUOUS|IRRELEVANT", "confidence": 0.0-1.0}`;
+Respond in JSON: {"verdict": "RELEVANT|AMBIGUOUS|IRRELEVANT", "confidence": 0.0-1.0}`);
 
         const response = await generateContentWithGeminiFlash(prompt, {
             temperature: 0.1,
@@ -126,7 +127,7 @@ export class OKSEEngine {
             console.log('[OKSE] Conversational query — skipping KB/Web/CRAG, generating direct response');
             pipelineSteps.push('conversational:direct');
 
-            const directPrompt = `You are a helpful, friendly AI assistant. Respond naturally and warmly to this message. Do NOT search any knowledge base or cite sources. Keep it brief and conversational.\n\nUser: ${query}`;
+            const directPrompt = buildProtectedPrompt(`You are a helpful, friendly AI assistant. Respond naturally and warmly to this message. Do NOT search any knowledge base or cite sources. Keep it brief and conversational.\n\nUser: ${query}`);
 
             let answer: string;
             try {
@@ -163,7 +164,7 @@ export class OKSEEngine {
             console.log('[OKSE] General knowledge query — skipping KB/Web, generating direct response');
             pipelineSteps.push('general_knowledge:direct');
 
-            const directPrompt = `You are a helpful AI assistant. Answer this general knowledge question directly from your training data. Do NOT cite any sources or mention a knowledge base.\n\nUser: ${query}`;
+            const directPrompt = buildProtectedPrompt(`You are a helpful AI assistant. Answer this general knowledge question directly from your training data. Do NOT cite any sources or mention a knowledge base.\n\nUser: ${query}`);
 
             let answer: string;
             try {
