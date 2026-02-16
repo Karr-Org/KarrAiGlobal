@@ -204,10 +204,16 @@ export class OKSEEngine {
                 console.log('[OKSE] Cache hit! Similarity:', cacheHit.similarity);
                 pipelineSteps.push('cache:hit');
 
+                // Only return sources if the CURRENT query's pipeline config uses retrieval
+                // If the cached entry has sources but the current query wouldn't retrieve (e.g., config.use_kb = false),
+                // don't return those sources to avoid showing irrelevant data
+                const shouldHaveSources = config.use_kb || config.use_web_cache || config.use_live_web;
+                const sources = shouldHaveSources ? cacheHit.sources : [];
+
                 return {
                     answer: cacheHit.response,
-                    citations: knowledgeFusion.formatCitations(cacheHit.sources),
-                    sources_used: cacheHit.sources,
+                    citations: knowledgeFusion.formatCitations(sources),
+                    sources_used: sources,
                     metadata: {
                         complexity_level: classification.level,
                         pipeline_used: pipelineSteps,
@@ -218,8 +224,8 @@ export class OKSEEngine {
                         crag_verdict: null,
                         confidence: cacheHit.confidence,
                         drafts_generated: 0,
-                        web_sources_used: cacheHit.sources.filter(s => s.type === 'web').length,
-                        kb_sources_used: cacheHit.sources.filter(s => s.type === 'kb').length,
+                        web_sources_used: sources.filter(s => s.type === 'web').length,
+                        kb_sources_used: sources.filter(s => s.type === 'kb').length,
                     },
                 };
             }
