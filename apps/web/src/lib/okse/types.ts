@@ -204,6 +204,35 @@ export interface FormattedCitation {
 }
 
 // ============================================================================
+// INLINE CITATION TOOL TYPES
+// ============================================================================
+
+/**
+ * An inline citation linking a specific text span in the response to a source.
+ * Produced by the Gemini function-calling citation tool.
+ */
+export interface InlineCitation {
+    /** The exact substring from the LLM's answer that this source supports */
+    cited_text: string;
+    /** 1-based index into the sources array provided to the LLM */
+    source_index: number;
+    /** Resolved source object (populated by the backend after tool call) */
+    source?: CitationSource;
+}
+
+/**
+ * Structured response from the citation tool-calling pipeline.
+ */
+export interface CitationToolResponse {
+    /** The LLM's markdown answer (no [N] markers — clean text) */
+    answer: string;
+    /** Granular inline citations linking text spans to sources */
+    inlineCitations: InlineCitation[];
+    /** Only the sources the LLM actually cited (filtered subset) */
+    citedSources: CitationSource[];
+}
+
+// ============================================================================
 // CRAWLER TYPES
 // ============================================================================
 
@@ -238,6 +267,8 @@ export interface OKSEResponse {
     answer: string;
     citations: FormattedCitation[];
     sources_used: CitationSource[];
+    /** Granular inline citations linking text spans to sources (new citation system) */
+    inline_citations?: InlineCitation[];
     metadata: {
         complexity_level: QueryComplexityLevel;
         pipeline_used: string[];
