@@ -158,6 +158,43 @@ export class OKSEEngine {
             };
         }
 
+        // Short-circuit: GENERAL_KNOWLEDGE queries skip all retrieval (math, trivia, translation)
+        if (classification.level === 'GENERAL_KNOWLEDGE') {
+            console.log('[OKSE] General knowledge query — skipping KB/Web, generating direct response');
+            pipelineSteps.push('general_knowledge:direct');
+
+            const directPrompt = `You are a helpful AI assistant. Answer this general knowledge question directly from your training data. Do NOT cite any sources or mention a knowledge base.\n\nUser: ${query}`;
+
+            let answer: string;
+            try {
+                answer = await generateContentWithGeminiFlash(directPrompt, {
+                    temperature: 0.3,
+                    maxOutputTokens: 1000,
+                });
+            } catch {
+                answer = "I'm sorry, I couldn't process that. Could you try rephrasing?";
+            }
+
+            return {
+                answer,
+                citations: [],
+                sources_used: [],
+                metadata: {
+                    complexity_level: 'GENERAL_KNOWLEDGE',
+                    pipeline_used: pipelineSteps,
+                    cache_hit: false,
+                    retrieval_time_ms: 0,
+                    generation_time_ms: Date.now() - startTime,
+                    total_time_ms: Date.now() - startTime,
+                    crag_verdict: null,
+                    confidence: 1.0,
+                    drafts_generated: 0,
+                    web_sources_used: 0,
+                    kb_sources_used: 0,
+                },
+            };
+        }
+
         // Step 2: Check semantic cache (if enabled)
         if (config.use_semantic_cache && !options?.skipCache) {
             const cacheHit = await semanticCache.lookup(query, productId, options?.userId);
@@ -227,8 +264,9 @@ export class OKSEEngine {
 
             console.log('[OKSE] CRAG verdict:', cragVerdict, 'Confidence:', cragResult.confidence);
 
-            // If IRRELEVANT or if explicitly requested, trigger live web search
-            const shouldLiveSearch = (cragVerdict === 'IRRELEVANT' || options?.enableLiveWeb) && config.use_live_web;
+            // Live web search only when pipeline config allows it for this complexity level
+            // AND either CRAG says context is irrelevant, or caller explicitly requested it
+            const shouldLiveSearch = config.use_live_web && (cragVerdict === 'IRRELEVANT' || options?.enableLiveWeb === true);
 
             if (shouldLiveSearch) {
                 console.log('[OKSE] Triggering live web search (Verdict: ' + cragVerdict + ', Explicit: ' + options?.enableLiveWeb + ')');

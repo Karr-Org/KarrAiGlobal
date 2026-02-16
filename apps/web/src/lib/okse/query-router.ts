@@ -33,18 +33,57 @@ function applyRules(query: string): RuleResult {
 
     // Rule 0: Conversational queries (greetings, thanks, meta) — NO KB search needed
     const conversationalPatterns = [
-        /^(hi|hello|hey|howdy|greetings|yo|sup)\b/i,
-        /^good\s+(morning|afternoon|evening|night)\b/i,
-        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going)\b/i,
-        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great))\b/i,
-        /^(thanks?|thank\s+you|thx|cheers|appreciated)\b/i,
-        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright)\s*[.!]?\s*$/i,
-        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work)\s*\??\s*$/i,
+        // Greetings (expanded)
+        /^(hi|hello|hey|howdy|greetings|yo|sup|hola|namaste|hii+|helo+|heya?)\b/i,
+        /^good\s+(morning|afternoon|evening|night|day)\b/i,
+        /^(what'?s\s+up|how\s+are\s+you|how'?s\s+it\s+going|how\s+do\s+you\s+do)\b/i,
+        /^(hey\s+there|hi\s+there|hello\s+there)\s*[.!]?\s*$/i,
+        // Farewells
+        /^(bye|goodbye|see\s+you|take\s+care|have\s+a\s+(good|nice|great)|good\s*bye|later|cya|ttyl)\b/i,
+        // Acknowledgements & short responses
+        /^(thanks?|thank\s+you|thx|cheers|appreciated|ty|tysm|much\s+appreciated)\b/i,
+        /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|alright|noted|yep|yup|yeah|yes|no|nope|nah|right|correct|absolutely|exactly|indeed|agreed)\s*[.!?]?\s*$/i,
+        // Meta / about the AI
+        /^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|how\s+do\s+you\s+work|what\s+is\s+your\s+name)\s*\??\s*$/i,
         /^help\s*$/i,
+        // Pleasantries & small talk
+        /^(how\s+was\s+your\s+day|nice\s+to\s+meet\s+you|pleased\s+to\s+meet\s+you)\b/i,
+        /^(that'?s?\s+(great|awesome|cool|nice|good|helpful|perfect|amazing))\s*[.!]?\s*$/i,
+        /^(i\s+see|makes\s+sense|i\s+understand|no\s+worries|no\s+problem|all\s+good|sounds\s+good)\s*[.!]?\s*$/i,
     ];
+
+    // Emoji-only or very short non-question messages (1-2 chars)
+    if (normalizedQuery.length <= 2 || /^[\p{Emoji}\s]+$/u.test(query.trim())) {
+        return { level: 'CONVERSATIONAL', confidence: 1.0, reason: 'Very short or emoji-only message' };
+    }
 
     if (conversationalPatterns.some(p => p.test(query))) {
         return { level: 'CONVERSATIONAL', confidence: 1.0, reason: 'Greeting, farewell, or meta-question — no KB search needed' };
+    }
+
+    // Short single-word non-question messages that aren't domain terms
+    if (wordCount === 1 && !normalizedQuery.includes('?')) {
+        const domainTerms = /^(gst|tax|itc|tds|income|itr|filing|invoice|challan|refund|cess|hsn|sac|gstr|audit)\b/i;
+        if (!domainTerms.test(normalizedQuery)) {
+            return { level: 'CONVERSATIONAL', confidence: 0.85, reason: 'Single non-domain word without question mark' };
+        }
+    }
+
+    // Rule 0.5: General knowledge — tight whitelist of clearly off-topic patterns
+    // These ONLY match queries that are obviously unrelated to ANY product domain
+    const generalKnowledgePatterns = [
+        /^(what\s+is\s+)?\d+[\s]*[+\-*/×÷%^]\s*\d+/i,                                    // Math: "2+2", "what is 5*3"
+        /^calculate\s+\d/i,                                                                 // "calculate 500..."
+        /^(how\s+much\s+is\s+)?\d+(\.\d+)?\s*%\s+(of|from)\s+\d/i,                         // "18% of 5000"
+        /^what\s+(time|day|date)\s+is\s+it/i,                                               // "what time is it"
+        /^translate\s+.+\s+to\s+\w+/i,                                                      // "translate hello to Hindi"
+        /^why\s+(is|are)\s+the\s+(sky|sun|moon|ocean|grass|earth)\b/i,                       // "why is the sky blue"
+        /^(what\s+is\s+the\s+capital\s+of|where\s+is\s+\w+\s+(located|situated))\b/i,       // "capital of France"
+        /^who\s+(won|scored|played)\s+(the|in)\s+(world\s+cup|olympics|super\s+bowl|oscars)/i, // "who won the world cup"
+    ];
+
+    if (generalKnowledgePatterns.some(p => p.test(query))) {
+        return { level: 'GENERAL_KNOWLEDGE', confidence: 0.95, reason: 'Clearly off-topic general knowledge query (math, trivia, utility)' };
     }
 
     // Rule 1: Multi-hop indicators
@@ -135,6 +174,12 @@ CONVERSATIONAL: Greetings, farewells, acknowledgements, or questions about the A
 - "Thanks!"
 - "Who are you?"
 
+GENERAL_KNOWLEDGE: Pure math, science trivia, geography, sports, translation — clearly unrelated to any product domain
+- "What is 2+2?"
+- "Why is the sky blue?"
+- "Translate hello to Hindi"
+- "What is the capital of France?"
+
 SIMPLE: Definition lookups, single fact queries, rate/deadline inquiries
 - "What is GST?"
 - "GST rate on coffee"
@@ -159,7 +204,7 @@ Query: "{query}"
 
 Respond in JSON format:
 {
-  "level": "SIMPLE" | "MODERATE" | "COMPLEX" | "MULTI_HOP",
+  "level": "GENERAL_KNOWLEDGE" | "SIMPLE" | "MODERATE" | "COMPLEX" | "MULTI_HOP",
   "reasoning": "Brief explanation",
   "sub_queries": ["Only for MULTI_HOP: decomposed sub-queries"]
 }`;
@@ -199,6 +244,7 @@ async function classifyWithLLM(query: string): Promise<QueryClassification> {
 function getEstimatedSources(level: QueryComplexityLevel): number {
     switch (level) {
         case 'CONVERSATIONAL': return 0;
+        case 'GENERAL_KNOWLEDGE': return 0;
         case 'SIMPLE': return 2;
         case 'MODERATE': return 5;
         case 'COMPLEX': return 8;
