@@ -16,7 +16,8 @@ import {
     Sparkles,
     ArrowLeft,
     Menu,
-    Loader2
+    Loader2,
+    Link2
 } from 'lucide-react';
 import Link from 'next/link';
 import { generatePresentation } from '@/lib/gamma/generator';
@@ -24,12 +25,24 @@ import type { GammaPresentation } from '@/lib/gamma/types';
 import { GammaChatCard, parsePresentationRequest, PresentationGenerating } from '@/components/gamma/GammaChatIntegration';
 import GammaViewer from '@/components/gamma/GammaViewer';
 
+interface InlineCitationData {
+    cited_text: string;
+    source_index: number;
+    source: {
+        title: string;
+        type: string;
+        domain?: string | null;
+        authority_score?: number;
+    } | null;
+}
+
 interface Message {
     id: string;
     role: 'user' | 'assistant';
     content: string;
     timestamp: Date;
     sources?: Source[];
+    inlineCitations?: InlineCitationData[];
     confidence?: number;
     isStreaming?: boolean;
     presentation?: GammaPresentation;
@@ -216,6 +229,13 @@ export function ChatInterface({
                 preview: s.excerpt || s.content?.substring(0, 150) || '',
             }));
 
+            // Parse inline citations from API response (new citation system)
+            const inlineCitations: InlineCitationData[] = (data.inline_citations || []).map((c: any) => ({
+                cited_text: c.cited_text || '',
+                source_index: c.source_index || 0,
+                source: c.source || null,
+            })).filter((c: InlineCitationData) => c.cited_text.length > 0);
+
             const assistantMessage: Message = {
                 id: assistantId,
                 role: 'assistant',
@@ -223,6 +243,7 @@ export function ChatInterface({
                 timestamp: new Date(),
                 confidence: data.confidence || data.metadata?.confidence || null,
                 sources: apiSources.length > 0 ? apiSources : undefined,
+                inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
             };
 
             setMessages(prev => [...prev, assistantMessage]);
@@ -485,7 +506,7 @@ function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
                         : 'bg-white shadow-sm border rounded-tl-none'
                     }`}>
                     <div className="text-sm whitespace-pre-wrap">
-                        <MarkdownContent content={message.content} isUser={isUser} />
+                        <MarkdownContent content={message.content} isUser={isUser} inlineCitations={message.inlineCitations} />
                     </div>
 
                     {message.isStreaming && message.generationTopic && (
@@ -510,8 +531,8 @@ function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
                 {/* Sources & Actions for Assistant */}
                 {!isUser && !message.error && (
                     <div className="mt-2 space-y-2">
-                        {/* Sources Toggle */}
-                        {message.sources && message.sources.length > 0 && (
+                        {/* Sources Toggle — only show as fallback when no inline citations */}
+                        {!message.inlineCitations && message.sources && message.sources.length > 0 && (
                             <>
                                 <button
                                     onClick={() => setShowSources(!showSources)}
@@ -581,12 +602,109 @@ function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
 // MARKDOWN RENDERER (proper, no dangerouslySetInnerHTML)
 // ============================================================================
 
-function MarkdownContent({ content, isUser }: { content: string; isUser?: boolean }) {
+function InlineCitationMark({ citation }: { citation: InlineCitationData }) {
+    const [showTooltip, setShowTooltip] = useState(false);
+    const sourceTitle = citation.source?.title || `Source ${citation.source_index}`;
+    const sourceType = citation.source?.type || 'kb';
+    const sourceDomain = citation.source?.domain;
+
+    return (
+        <span
+            className="relative inline-flex items-center"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
+            <span className="inline-flex items-center justify-center w-4 h-4 ml-0.5 cursor-pointer text-blue-500 hover:text-blue-700 transition-colors">
+                <Link2 className="w-3 h-3" />
+            </span>
+            {showTooltip && (
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 p-2.5 bg-gray-900 text-white text-xs rounded-lg shadow-xl pointer-events-none animate-fade-in">
+                    <span className="block font-medium text-blue-300 mb-1 truncate">{sourceTitle}</span>
+                    <span className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 text-[10px] uppercase">{sourceType}</span>
+                        {sourceDomain && <span className="text-gray-400 text-[10px] truncate">{sourceDomain}</span>}
+                    </span>
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-gray-900" />
+                </span>
+            )}
+        </span>
+    );
+}
+
+/**
+ * Inject inline citation marks into rendered text.
+ * Finds each cited_text span and appends a 🔗 icon after it.
+ */
+function injectCitationMarks(
+    text: string,
+    citations: InlineCitationData[],
+    renderFn: (t: string) => React.ReactNode,
+    startKey: number
+): React.ReactNode[] {
+    if (!citations || citations.length === 0) {
+        return [renderFn(text)];
+    }
+
+    // Sort citations by position in text (earliest first), then by length (longest first for overlap handling)
+    const sortedCitations = citations
+        .map(c => ({ ...c, idx: text.toLowerCase().indexOf(c.cited_text.toLowerCase()) }))
+        .filter(c => c.idx !== -1)
+        .sort((a, b) => a.idx - b.idx || b.cited_text.length - a.cited_text.length);
+
+    if (sortedCitations.length === 0) {
+        return [renderFn(text)];
+    }
+
+    const parts: React.ReactNode[] = [];
+    let lastEnd = 0;
+    let key = startKey;
+
+    for (const c of sortedCitations) {
+        // Skip overlapping citations
+        if (c.idx < lastEnd) continue;
+
+        // Text before the cited span
+        if (c.idx > lastEnd) {
+            parts.push(<span key={key++}>{renderFn(text.substring(lastEnd, c.idx))}</span>);
+        }
+
+        // The cited text span + citation mark
+        const citedEnd = c.idx + c.cited_text.length;
+        parts.push(
+            <span key={key++} className="cited-text-span group/cite inline">
+                <span className="group-hover/cite:bg-blue-50 group-hover/cite:border-b group-hover/cite:border-blue-300 transition-colors duration-150">
+                    {renderFn(text.substring(c.idx, citedEnd))}
+                </span>
+                <InlineCitationMark citation={c} />
+            </span>
+        );
+        lastEnd = citedEnd;
+    }
+
+    // Remaining text after last citation
+    if (lastEnd < text.length) {
+        parts.push(<span key={key++}>{renderFn(text.substring(lastEnd))}</span>);
+    }
+
+    return parts;
+}
+
+function MarkdownContent({ content, isUser, inlineCitations }: { content: string; isUser?: boolean; inlineCitations?: InlineCitationData[] }) {
     if (!content) return null;
 
-    const lines = content.split('\n');
+    // When inline citations are present, strip [N] and [Source N] markers from the text
+    // since the LLM tends to include both the structured function call AND text markers
+    let processedContent = content;
+    if (!isUser && inlineCitations && inlineCitations.length > 0) {
+        processedContent = content.replace(/\s*\[(Source\s+)?\d+\]/g, '');
+    }
+
+    const lines = processedContent.split('\n');
     const elements: React.ReactNode[] = [];
     let i = 0;
+
+    // For non-user messages with inline citations, we inject marks at the line level
+    const hasCitations = !isUser && inlineCitations && inlineCitations.length > 0;
 
     while (i < lines.length) {
         const line = lines[i];
@@ -611,9 +729,10 @@ function MarkdownContent({ content, isUser }: { content: string; isUser?: boolea
 
         // Heading ##
         if (line.startsWith('## ')) {
+            const text = line.slice(3);
             elements.push(
                 <h3 key={elements.length} className="font-bold text-base mt-3 mb-1">
-                    {renderInline(line.slice(3))}
+                    {hasCitations ? injectCitationMarks(text, inlineCitations!, renderInline, elements.length * 100) : renderInline(text)}
                 </h3>
             );
             i++;
@@ -622,9 +741,10 @@ function MarkdownContent({ content, isUser }: { content: string; isUser?: boolea
 
         // Heading ###
         if (line.startsWith('### ')) {
+            const text = line.slice(4);
             elements.push(
                 <h4 key={elements.length} className="font-semibold text-sm mt-2 mb-1">
-                    {renderInline(line.slice(4))}
+                    {hasCitations ? injectCitationMarks(text, inlineCitations!, renderInline, elements.length * 100) : renderInline(text)}
                 </h4>
             );
             i++;
@@ -633,10 +753,11 @@ function MarkdownContent({ content, isUser }: { content: string; isUser?: boolea
 
         // Bullet points (-, *, •)
         if (/^[\-\*•]\s/.test(line)) {
+            const text = line.replace(/^[\-\*•]\s/, '');
             elements.push(
                 <div key={elements.length} className="flex gap-2 ml-1">
                     <span className="text-gray-400 select-none">•</span>
-                    <span>{renderInline(line.replace(/^[\-\*•]\s/, ''))}</span>
+                    <span>{hasCitations ? injectCitationMarks(text, inlineCitations!, renderInline, elements.length * 100) : renderInline(text)}</span>
                 </div>
             );
             i++;
@@ -650,7 +771,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser?: boolea
             elements.push(
                 <div key={elements.length} className="flex gap-2 ml-1">
                     <span className="text-gray-400 select-none min-w-[1.2em]">{num}.</span>
-                    <span>{renderInline(text)}</span>
+                    <span>{hasCitations ? injectCitationMarks(text, inlineCitations!, renderInline, elements.length * 100) : renderInline(text)}</span>
                 </div>
             );
             i++;
@@ -667,7 +788,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser?: boolea
         // Regular paragraph
         elements.push(
             <div key={elements.length}>
-                {renderInline(line)}
+                {hasCitations ? injectCitationMarks(line, inlineCitations!, renderInline, elements.length * 100) : renderInline(line)}
             </div>
         );
         i++;

@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { triggerBackgroundLearning } from '@/lib/cognitive/learning-orchestrator';
 import { buildAdaptiveConfig, detectEmotionalState } from '@/lib/cognitive/adaptive-intelligence';
 import { liveWebSearch } from '@/lib/okse/live-web-search';
-import { generateWithCitationTool } from '@/lib/okse/citation-tool';
+import { generateWithCitationTool, extractCitationsFallback } from '@/lib/okse/citation-tool';
 import type { CitationSource, InlineCitation } from '@/lib/okse/types';
 
 const supabase = createClient(
@@ -625,6 +625,21 @@ export async function POST(request: NextRequest) {
                 // Fallback: use standard generation if citation tool fails
                 console.error('[UserChat] Citation tool failed, falling back:', citationError);
                 response = await generateContentMultiTurn(multiTurnMessages);
+
+                // Robust fallback: parse [N] markers from the fallback text
+                // This ensures citation icons appear even when function calling errors out
+                if (response && sourcesForTool.length > 0) {
+                    try {
+                        const fallbackResult = extractCitationsFallback(response, sourcesForTool);
+                        if (fallbackResult.inlineCitations.length > 0) {
+                            inlineCitations = fallbackResult.inlineCitations;
+                            citedSources = fallbackResult.citedSources;
+                            console.log('[UserChat] Fallback parsed', inlineCitations.length, 'citations from [N] markers');
+                        }
+                    } catch (fallbackErr) {
+                        console.error('[UserChat] Fallback citation parsing failed:', fallbackErr);
+                    }
+                }
             }
         } else {
             // No sources — conversational query, use standard generation
@@ -745,6 +760,8 @@ If nothing worth remembering, return: {"should_remember": false}`;
                     type: c.source.type,
                     domain: c.source.domain,
                     authority_score: c.source.authority_score,
+                    url: c.source.url || null,
+                    excerpt: c.source.chunk_content ? c.source.chunk_content.substring(0, 120) : null,
                 } : null,
             })),
             // Sources: only the ones the LLM actually cited (filtered)

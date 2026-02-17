@@ -107,8 +107,7 @@ export async function generateWithCitationTool(
                 tools: [CITATION_TOOL_DECLARATION],
                 toolConfig: {
                     functionCallingConfig: {
-                        mode: 'ANY',
-                        allowedFunctionNames: ['respond_with_citations'],
+                        mode: 'AUTO',
                     },
                 },
                 generationConfig: {
@@ -218,18 +217,33 @@ function filterSourcesByCitations(
  * Fallback: extract [N] style citations from plain text when function calling fails.
  * Mirrors the approach in speculative-drafting.ts.
  */
-function extractCitationsFallback(
+export function extractCitationsFallback(
     text: string,
     sources: CitationSource[]
 ): CitationToolResponse {
     console.log('[CitationTool] Using regex fallback for citation extraction');
 
-    const matches = text.match(/\[(\d+)\]/g) || [];
-    const citedIndices = new Set(
-        [...matches]
-            .map(m => parseInt(m.replace(/[\[\]]/g, ''), 10))
-            .filter(n => n >= 1 && n <= sources.length)
-    );
+    // Match both [N] and [Source N] patterns (case-insensitive)
+    const bareMatches = text.match(/\[(\d+)\]/g) || [];
+    const sourceMatches = text.match(/\[Source\s+(\d+)\]/gi) || [];
+
+    console.log('[CitationTool] Bare [N] matches:', bareMatches.length, '| [Source N] matches:', sourceMatches.length);
+
+    const citedIndices = new Set<number>();
+
+    // Parse bare [N] matches
+    for (const m of bareMatches) {
+        const n = parseInt(m.replace(/[\[\]]/g, ''), 10);
+        if (n >= 1 && n <= sources.length) citedIndices.add(n);
+    }
+
+    // Parse [Source N] matches
+    for (const m of sourceMatches) {
+        const n = parseInt(m.replace(/\[Source\s+/i, '').replace(']', ''), 10);
+        if (n >= 1 && n <= sources.length) citedIndices.add(n);
+    }
+
+    console.log('[CitationTool] Cited indices found:', [...citedIndices]);
 
     const citedSources = sources.filter((_, i) => citedIndices.has(i + 1));
 
@@ -237,7 +251,7 @@ function extractCitationsFallback(
     const inlineCitations: InlineCitation[] = [];
     for (const idx of citedIndices) {
         inlineCitations.push({
-            cited_text: `[${idx}]`, // Fallback: the marker itself
+            cited_text: `Referenced from source ${idx}`,
             source_index: idx,
             source: sources[idx - 1],
         });
