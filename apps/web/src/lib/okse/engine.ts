@@ -14,12 +14,14 @@ import { semanticCache } from './semantic-cache';
 import { knowledgeFusion } from './knowledge-fusion';
 import { speculativeDrafting } from './speculative-drafting';
 import { liveWebSearch } from './live-web-search';
+import { generateWithCitationTool, formatSourcesForPrompt } from './citation-tool';
 import { generateContentWithGemini, generateContentWithGeminiFlash } from '@/lib/gemini';
 import { buildProtectedPrompt } from '@/lib/conversation-intelligence';
 import {
     OKSEResponse,
     QueryComplexityLevel,
     CitationSource,
+    InlineCitation,
     PIPELINE_CONFIGS,
     authorityToStars
 } from './types';
@@ -328,9 +330,12 @@ export class OKSEEngine {
         let answer: string;
         let confidence: number;
         let draftsGenerated = 0;
+        let inlineCitations: InlineCitation[] = [];
+        let citedSources: CitationSource[] = sources; // Default: all sources
 
         if (config.use_speculative_drafting && sources.length > 0) {
             // Use speculative drafting for complex queries
+            // (speculative drafting has its own multi-draft verification)
             const draftingResult = await speculativeDrafting.run(query, sources);
             answer = draftingResult.answer;
             confidence = draftingResult.confidence;
@@ -340,39 +345,63 @@ export class OKSEEngine {
             if (draftingResult.has_conflicts) {
                 pipelineSteps.push('conflicts:detected');
             }
+        } else if (sources.length > 0) {
+            // Simple generation with citation tool for inline citations
+            const messages = [{
+                role: 'user',
+                parts: [{ text: `You are an expert AI assistant. Answer the following question based on the provided context.\n\nQuestion: ${query}\n\nContext:\n${formatSourcesForPrompt(sources)}\n\nInstructions:\n- Be concise and direct\n- Cite specific claims from the sources\n- If information is not in the context, say so` }]
+            }];
+
+            try {
+                const citationResult = await generateWithCitationTool(
+                    messages,
+                    sources,
+                    { temperature: 0.3, maxOutputTokens: 1500 }
+                );
+                answer = citationResult.answer;
+                inlineCitations = citationResult.inlineCitations;
+                citedSources = citationResult.citedSources;
+                confidence = 0.85;
+                pipelineSteps.push('generation:citation_tool');
+                console.log('[OKSE] Citation tool:', inlineCitations.length, 'inline citations,', citedSources.length, 'cited sources');
+            } catch (citationError) {
+                // Fallback to simple generation without citation tool
+                console.error('[OKSE] Citation tool failed, falling back:', citationError);
+                const contextFormatted = sources.map((s, i) =>
+                    `[${i + 1}] (${s.domain || 'KB'}): ${s.chunk_content}`
+                ).join('\n\n');
+
+                const prompt = SIMPLE_GENERATION_PROMPT
+                    .replace('{query}', query)
+                    .replace('{context}', contextFormatted);
+
+                answer = await generateContentWithGemini(prompt, {
+                    temperature: 0.3,
+                    maxOutputTokens: 1500,
+                });
+                confidence = 0.8;
+                pipelineSteps.push('generation:simple_fallback');
+            }
         } else {
-            // Simple generation for straightforward queries
-            const contextFormatted = sources.map((s, i) =>
-                `[${i + 1}] (${s.domain || 'KB'}): ${s.chunk_content}`
-            ).join('\n\n');
-
-            const prompt = SIMPLE_GENERATION_PROMPT
-                .replace('{query}', query)
-                .replace('{context}', contextFormatted);
-
-            answer = await generateContentWithGemini(prompt, {
-                temperature: 0.3,
-                maxOutputTokens: 1500,
-            });
-            confidence = 0.8;
-            pipelineSteps.push('generation:simple');
+            answer = 'I could not find relevant information in the knowledge base to answer your question.';
+            confidence = 0.3;
+            pipelineSteps.push('generation:no_sources');
         }
 
         const generationTime = Date.now() - generationStart;
 
-        // Step 6: Add citations block to answer
-        const citationsBlock = knowledgeFusion.formatCitationsBlock(sources);
-        const finalAnswer = answer + citationsBlock;
+        // Step 6: Format final answer (no more appending citation blocks — inline only)
+        const finalAnswer = answer;
 
         // Step 7: Cache the response (if confidence is high enough)
-        const sourceDistribution = knowledgeFusion.analyzeSourceDistribution(sources);
+        const sourceDistribution = knowledgeFusion.analyzeSourceDistribution(citedSources);
 
         if (config.use_semantic_cache && confidence >= 0.7) {
             await semanticCache.store(
                 query,
                 productId,
                 finalAnswer,
-                sources,
+                citedSources, // Cache only cited sources
                 {
                     confidence,
                     complexity: classification.level,
@@ -390,8 +419,9 @@ export class OKSEEngine {
 
         return {
             answer: finalAnswer,
-            citations: knowledgeFusion.formatCitations(sources),
-            sources_used: sources,
+            citations: knowledgeFusion.formatCitations(citedSources),
+            sources_used: citedSources,
+            inline_citations: inlineCitations,
             metadata: {
                 complexity_level: classification.level,
                 pipeline_used: pipelineSteps,

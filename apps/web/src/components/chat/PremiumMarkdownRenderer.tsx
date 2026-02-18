@@ -46,11 +46,25 @@ import 'katex/dist/katex.min.css';
 
 // ============ TYPES ============
 
+export interface InlineCitationData {
+    cited_text: string;
+    source_index: number;
+    source: {
+        title: string;
+        type: string;
+        domain?: string | null;
+        authority_score?: number;
+        url?: string | null;
+        excerpt?: string | null;
+    } | null;
+}
+
 interface PremiumMarkdownRendererProps {
     content: string;
     brandColor?: string;
     animate?: boolean;
     className?: string;
+    inlineCitations?: InlineCitationData[];
 }
 
 interface CodeBlockProps {
@@ -882,7 +896,8 @@ export function PremiumMarkdownRenderer({
     content,
     brandColor = '#DA7B4D',
     animate = true,
-    className = ''
+    className = '',
+    inlineCitations
 }: PremiumMarkdownRendererProps) {
     // Memoize components to avoid recreating on every render
     const components = useMemo(
@@ -890,9 +905,40 @@ export function PremiumMarkdownRenderer({
         [brandColor]
     );
 
-    // Pre-process content to handle citation patterns like [Source 1, 2]
+    // Pre-process content: inject inline citation badges or convert [Source N] to sup
     const processedContent = useMemo(() => {
-        // Convert [Source N] to superscript-style citations
+        if (inlineCitations && inlineCitations.length > 0) {
+            // Build a map of source_index → citation data for tooltip
+            const sourceMap = new Map<number, InlineCitationData>();
+            for (const c of inlineCitations) {
+                sourceMap.set(c.source_index, c);
+            }
+
+            // Helper to escape HTML in user-supplied strings
+            const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+            // Replace [Source N] and [N] markers with inline superscript citation badges + rich tooltip
+            return content.replace(
+                /\s*\[(?:Source\s+)?(\d+)\]/gi,
+                (_, num) => {
+                    const idx = parseInt(num, 10);
+                    const cit = sourceMap.get(idx);
+                    const title = esc(cit?.source?.title || `Source ${idx}`);
+                    const excerpt = esc(cit?.source?.excerpt || '');
+                    const type = cit?.source?.type || 'kb';
+                    const typeLabel = type === 'web' || type === 'live_web' ? '🌐 Web' : '📚 Knowledge Base';
+                    const typeClass = type === 'web' || type === 'live_web' ? 'cite-web' : 'cite-kb';
+                    const url = cit?.source?.url || '';
+
+                    const linkHtml = url
+                        ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="cite-tooltip-link">↗ Open source</a>`
+                        : '';
+
+                    return `<span class="inline-cite-wrap"><sup class="inline-cite ${typeClass}"><span class="cite-icon">${idx}</span></sup><span class="cite-tooltip"><span class="cite-tooltip-header"><span class="cite-tooltip-badge ${typeClass}">${idx}</span><span class="cite-tooltip-title">${title}</span></span>${excerpt ? `<span class="cite-tooltip-excerpt">&ldquo;${excerpt}&hellip;&rdquo;</span>` : ''}<span class="cite-tooltip-footer"><span class="cite-tooltip-type ${typeClass}">${typeLabel}</span>${linkHtml}</span></span></span>`;
+                }
+            );
+        }
+        // Fallback: convert [Source N] to superscript-style citations
         return content.replace(
             /\[Source\s*([\d,\s]+)\]/gi,
             (_, nums) => {
@@ -902,7 +948,7 @@ export function PremiumMarkdownRenderer({
                     .join('');
             }
         );
-    }, [content]);
+    }, [content, inlineCitations]);
 
     return (
         <motion.div
@@ -931,7 +977,8 @@ interface AIMessageProps {
     showSources: boolean;
     onToggleSources: () => void;
     confidence?: number;
-    kbWasEmpty?: boolean; // True if KB had no results and web search was used
+    kbWasEmpty?: boolean;
+    inlineCitations?: InlineCitationData[];
 }
 
 export function AIMessage({
@@ -941,13 +988,17 @@ export function AIMessage({
     showSources,
     onToggleSources,
     confidence,
-    kbWasEmpty
+    kbWasEmpty,
+    inlineCitations
 }: AIMessageProps) {
+    const hasInlineCitations = inlineCitations && inlineCitations.length > 0;
+    console.log('[DEBUG AIMessage] inlineCitations:', inlineCitations?.length, 'hasInline:', hasInlineCitations, 'sources:', sources?.length);
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white border border-sand-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+            className="bg-white border border-sand-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow"
         >
             {/* KB Empty Notice */}
             {kbWasEmpty && (
@@ -957,13 +1008,15 @@ export function AIMessage({
                 </div>
             )}
 
-            {/* Main Content */}
+            {/* Main Content — passes inlineCitations so [N] markers are stripped */}
             <div className="px-5 py-4">
-                <PremiumMarkdownRenderer content={content} brandColor={brandColor} />
+                <PremiumMarkdownRenderer content={content} brandColor={brandColor} inlineCitations={inlineCitations} />
             </div>
 
-            {/* Sources Section */}
-            {sources && sources.length > 0 && (
+
+            {/* Inline citations rendered as superscript badges within text */}
+
+            {!hasInlineCitations && sources && sources.length > 0 && (
                 <div className="border-t border-sand-100 px-5 py-3 bg-sand-50/50">
                     <button
                         onClick={onToggleSources}

@@ -60,6 +60,7 @@ import dynamic from 'next/dynamic';
 import { ProactiveInsights, WelcomeMessage } from '@/components/cognitive/ProactiveInsights';
 import { ThinkingProcess, useThinkingState, ThinkingState } from '@/components/chat/ThinkingProcess';
 import { AIMessage } from '@/components/chat/PremiumMarkdownRenderer';
+import type { InlineCitationData } from '@/components/chat/PremiumMarkdownRenderer';
 import { useCognitiveSession } from '@/hooks/useCognitiveSession';
 import KnowledgeGraphDashboard from '@/components/cognitive/KnowledgeGraphDashboard';
 import CognitiveProfileDashboard from '@/components/cognitive/CognitiveProfileDashboard';
@@ -74,7 +75,8 @@ interface Message {
         sourcesUsed?: number;
         hasContextFile?: boolean;
     };
-    kbWasEmpty?: boolean; // True if KB had 0 results and web search was used
+    kbWasEmpty?: boolean;
+    inlineCitations?: InlineCitationData[];
 }
 
 interface Product {
@@ -806,13 +808,29 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
             // Complete the thinking process
             thinkingHook.complete();
 
+            // Parse inline citations from the API response
+            console.log('[DEBUG Citations] Raw API response inline_citations:', JSON.stringify(data.inline_citations));
+            console.log('[DEBUG Citations] Raw API response sources:', JSON.stringify(data.sources?.length));
+            console.log('[DEBUG Citations] Response text preview:', responseText.substring(0, 200));
+            const inlineCitations: InlineCitationData[] = (data.inline_citations || []).map((c: any) => ({
+                cited_text: c.cited_text || '',
+                source_index: c.source_index || 0,
+                source: c.source ? {
+                    ...c.source,
+                    url: c.source.url || null,
+                    excerpt: c.source.excerpt || null,
+                } : null,
+            })).filter((c: InlineCitationData) => c.cited_text.length > 0);
+
             setMessages(prev => [...prev, {
                 role: 'assistant',
                 content: responseText,
                 sources: data.sources,
                 metadata: data.metadata,
                 kbWasEmpty: data.reasoning?.kbWasEmpty,
+                inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
             }]);
+            console.log('[DEBUG Citations] Final inlineCitations passed to message:', inlineCitations.length, inlineCitations);
 
             // 🧠 COGNITIVE: Save assistant response to session
             if (sessionId) {
@@ -1628,6 +1646,7 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                                                             showSources={showSources === i}
                                                             onToggleSources={() => setShowSources(showSources === i ? null : i)}
                                                             kbWasEmpty={msg.kbWasEmpty}
+                                                            inlineCitations={msg.inlineCitations}
                                                         />
                                                     </div>
 

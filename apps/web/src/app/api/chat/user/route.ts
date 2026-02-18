@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { triggerBackgroundLearning } from '@/lib/cognitive/learning-orchestrator';
 import { buildAdaptiveConfig, detectEmotionalState } from '@/lib/cognitive/adaptive-intelligence';
 import { liveWebSearch } from '@/lib/okse/live-web-search';
+import { generateWithCitationTool, extractCitationsFallback } from '@/lib/okse/citation-tool';
+import type { CitationSource, InlineCitation } from '@/lib/okse/types';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -247,67 +249,67 @@ export async function POST(request: NextRequest) {
 
         // Skip KB searches entirely for conversational queries (embedding is empty anyway)
         if (!isConversational) {
-        // ============================================
-        // 1. GLOBAL PRODUCT KNOWLEDGE
-        // ============================================
-        console.log('[UserChat] Calling hybrid_search with:', {
-            embedding_length: queryEmbedding.length,
-            query: query.substring(0, 50),
-            p_product_id: productId,
-            p_user_id: productUser.user_id,
-        });
-
-        const { data: globalChunks, error: globalError } = await supabase.rpc('hybrid_search', {
-            query_embedding: queryEmbedding,
-            query_text: query,
-            p_product_id: productId,
-            p_user_id: productUser.user_id,
-            match_count: 5,
-        });
-
-        console.log('[UserChat] hybrid_search result:', {
-            chunks_found: globalChunks?.length || 0,
-            error: globalError,
-            first_chunk_preview: globalChunks?.[0]?.content?.substring(0, 100),
-        });
-
-        if (globalError) {
-            console.error('[UserChat] hybrid_search error:', globalError);
-        }
-
-        if (globalChunks?.length > 0) {
-            console.log(`[UserChat] Found ${globalChunks.length} internal KB chunks`);
-            globalChunks.forEach((chunk: any) => {
-                allChunks.push({
-                    content: chunk.content,
-                    similarity: chunk.score || 0.5,  // hybrid_search returns 'score', not 'similarity'
-                    title: chunk.document_title || 'Knowledge Base',
-                    type: 'global',
-                });
+            // ============================================
+            // 1. GLOBAL PRODUCT KNOWLEDGE
+            // ============================================
+            console.log('[UserChat] Calling hybrid_search with:', {
+                embedding_length: queryEmbedding.length,
+                query: query.substring(0, 50),
+                p_product_id: productId,
+                p_user_id: productUser.user_id,
             });
-        } else {
-            console.log('[UserChat] No internal KB chunks found - KB may be empty or query not matching');
-        }
 
-        // ============================================
-        // 2. USER'S PRIVATE KNOWLEDGE BASE
-        // ============================================
-        const { data: userChunks } = await supabase.rpc('match_user_knowledge_chunks', {
-            query_embedding: queryEmbedding,
-            p_product_user_id: productUserId,
-            match_count: 3,
-        });
-
-        if (userChunks?.length > 0) {
-            userChunks.forEach((chunk: any) => {
-                allChunks.push({
-                    content: chunk.content,
-                    similarity: chunk.similarity || 0.5,
-                    title: chunk.document_name || 'Your Document',
-                    type: 'user',
-                });
+            const { data: globalChunks, error: globalError } = await supabase.rpc('hybrid_search', {
+                query_embedding: queryEmbedding,
+                query_text: query,
+                p_product_id: productId,
+                p_user_id: productUser.user_id,
+                match_count: 5,
             });
-        }
+
+            console.log('[UserChat] hybrid_search result:', {
+                chunks_found: globalChunks?.length || 0,
+                error: globalError,
+                first_chunk_preview: globalChunks?.[0]?.content?.substring(0, 100),
+            });
+
+            if (globalError) {
+                console.error('[UserChat] hybrid_search error:', globalError);
+            }
+
+            if (globalChunks?.length > 0) {
+                console.log(`[UserChat] Found ${globalChunks.length} internal KB chunks`);
+                globalChunks.forEach((chunk: any) => {
+                    allChunks.push({
+                        content: chunk.content,
+                        similarity: chunk.score || 0.5,  // hybrid_search returns 'score', not 'similarity'
+                        title: chunk.document_title || 'Knowledge Base',
+                        type: 'global',
+                    });
+                });
+            } else {
+                console.log('[UserChat] No internal KB chunks found - KB may be empty or query not matching');
+            }
+
+            // ============================================
+            // 2. USER'S PRIVATE KNOWLEDGE BASE
+            // ============================================
+            const { data: userChunks } = await supabase.rpc('match_user_knowledge_chunks', {
+                query_embedding: queryEmbedding,
+                p_product_user_id: productUserId,
+                match_count: 3,
+            });
+
+            if (userChunks?.length > 0) {
+                userChunks.forEach((chunk: any) => {
+                    allChunks.push({
+                        content: chunk.content,
+                        similarity: chunk.similarity || 0.5,
+                        title: chunk.document_name || 'Your Document',
+                        type: 'user',
+                    });
+                });
+            }
         } // end: skip KB searches for conversational queries
 
         // ============================================
@@ -588,8 +590,61 @@ export async function POST(request: NextRequest) {
         console.log('  - Top chunks count:', topChunks.length);
         console.log('  - Mode:', enableExtendedKnowledge ? 'EXTENDED' : 'STRICT');
 
-        // Step 5: Generate response using multi-turn format
-        const response = await generateContentMultiTurn(multiTurnMessages);
+        // Step 5: Generate response — use citation tool when sources exist
+        let response: string;
+        let inlineCitations: InlineCitation[] = [];
+        let citedSources: CitationSource[] = [];
+
+        if (topChunks.length > 0) {
+            // Convert ContextChunks to CitationSource format for the citation tool
+            const sourcesForTool: CitationSource[] = topChunks.map((c, i) => ({
+                id: `chunk-${i}`,
+                type: c.type === 'web' ? 'web' as const : 'kb' as const,
+                domain: c.type === 'web' ? c.title.match(/\[(.+?)\]/)?.[1] || null : null,
+                display_name: c.type === 'web' ? c.title : 'Your Knowledge Base',
+                title: c.title,
+                url: null,
+                authority_score: Math.round(c.similarity * 10),
+                trust_stars: Math.round(c.similarity * 5),
+                contextual_summary: null,
+                chunk_content: c.content,
+                relevance_score: c.similarity,
+            }));
+
+            try {
+                const citationResult = await generateWithCitationTool(
+                    multiTurnMessages,
+                    sourcesForTool,
+                    { temperature: 0.7, maxOutputTokens: 2048 }
+                );
+                response = citationResult.answer;
+                inlineCitations = citationResult.inlineCitations;
+                citedSources = citationResult.citedSources;
+                console.log('[UserChat] Citation tool: ', inlineCitations.length, 'inline citations,', citedSources.length, 'cited sources');
+            } catch (citationError) {
+                // Fallback: use standard generation if citation tool fails
+                console.error('[UserChat] Citation tool failed, falling back:', citationError);
+                response = await generateContentMultiTurn(multiTurnMessages);
+
+                // Robust fallback: parse [N] markers from the fallback text
+                // This ensures citation icons appear even when function calling errors out
+                if (response && sourcesForTool.length > 0) {
+                    try {
+                        const fallbackResult = extractCitationsFallback(response, sourcesForTool);
+                        if (fallbackResult.inlineCitations.length > 0) {
+                            inlineCitations = fallbackResult.inlineCitations;
+                            citedSources = fallbackResult.citedSources;
+                            console.log('[UserChat] Fallback parsed', inlineCitations.length, 'citations from [N] markers');
+                        }
+                    } catch (fallbackErr) {
+                        console.error('[UserChat] Fallback citation parsing failed:', fallbackErr);
+                    }
+                }
+            }
+        } else {
+            // No sources — conversational query, use standard generation
+            response = await generateContentMultiTurn(multiTurnMessages);
+        }
 
         // ============================================
         // EXTRACT MEMORY SUGGESTIONS (Post-chat)
@@ -682,6 +737,7 @@ If nothing worth remembering, return: {"should_remember": false}`;
                 taskDetected: taskName,
                 entityDetected: detectedEntityId,
                 sourcesUsed: topChunks.length,
+                citedSourcesCount: citedSources.length,
                 hasContextFile: !!contextFile,
             },
             // OmniForge Phase 3: Reasoning metadata for Thinking UI
@@ -695,12 +751,33 @@ If nothing worth remembering, return: {"should_remember": false}`;
                 evaluatedSources: topChunks.length,
                 sourceTypes: [...new Set(topChunks.map(c => c.type))],
             },
-            sources: topChunks.slice(0, 5).map(c => ({
-                title: c.title,
-                excerpt: c.content.substring(0, 150) + '...',
-                type: c.type === 'user' ? 'private' : c.type === 'web' ? 'web' : 'global',
-                icon: c.type === 'web' ? '🌐' : c.type === 'user' ? '📁' : '📚',
+            // Inline citations: granular text-to-source mappings (new system)
+            inline_citations: inlineCitations.map(c => ({
+                cited_text: c.cited_text,
+                source_index: c.source_index,
+                source: c.source ? {
+                    title: c.source.title,
+                    type: c.source.type,
+                    domain: c.source.domain,
+                    authority_score: c.source.authority_score,
+                    url: c.source.url || null,
+                    excerpt: c.source.chunk_content ? c.source.chunk_content.substring(0, 120) : null,
+                } : null,
             })),
+            // Sources: only the ones the LLM actually cited (filtered)
+            sources: citedSources.length > 0
+                ? citedSources.map(s => ({
+                    title: s.title,
+                    excerpt: s.chunk_content.substring(0, 150) + '...',
+                    type: s.type === 'user_kb' ? 'private' : s.type === 'web' ? 'web' : 'global',
+                    icon: s.type === 'web' || s.type === 'live_web' ? '🌐' : s.type === 'user_kb' ? '📁' : '📚',
+                }))
+                : topChunks.slice(0, 5).map(c => ({
+                    title: c.title,
+                    excerpt: c.content.substring(0, 150) + '...',
+                    type: c.type === 'user' ? 'private' : c.type === 'web' ? 'web' : 'global',
+                    icon: c.type === 'web' ? '🌐' : c.type === 'user' ? '📁' : '📚',
+                })),
             memorySuggestions,
         });
 
