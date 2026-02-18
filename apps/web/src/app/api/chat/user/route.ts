@@ -18,6 +18,8 @@ import {
     summarizeConversation,
     sanitizeUserInput,
     isConversationalQuery,
+    buildStrictModePrompt,
+    buildExtendedModePrompt,
     STRICT_MODE_PROMPT,
     EXTENDED_MODE_PROMPT,
     IDENTITY_PROTECTION_BLOCK,
@@ -522,25 +524,28 @@ export async function POST(request: NextRequest) {
         }
 
         // Step 3: Select system prompt based on Extended Knowledge mode
-        // STRICT_MODE_PROMPT: Only answers from KB (default)
-        // EXTENDED_MODE_PROMPT: Allows Gemini general knowledge
-        const basePrompt = enableExtendedKnowledge ? EXTENDED_MODE_PROMPT : STRICT_MODE_PROMPT;
+        // Build prompt WITH persona identity baked into the identity protection block
+        // so there are no conflicting "You are" statements
+        const agentName = persona?.agent_name || null;
+        const orgName = persona?.organization_name || null;
+        const basePrompt = enableExtendedKnowledge
+            ? buildExtendedModePrompt(agentName, orgName)
+            : buildStrictModePrompt(agentName, orgName);
         let systemPrompt = taskSystemPrompt || basePrompt;
 
         console.log('[Mode]', enableExtendedKnowledge ? 'EXTENDED (KB + General)' : 'STRICT (KB Only)');
 
         // ============================================
-        // INJECT AGENT PERSONA INTO SYSTEM PROMPT
-        // This is what gives each product its unique personality
+        // INJECT AGENT PERSONA BEHAVIOR INTO SYSTEM PROMPT
+        // Identity (name, org) is already inside the identity protection block.
+        // This section adds tone, instructions, guardrails, and fallback.
         // ============================================
         if (persona) {
-            let personaBlock = '\n\n## YOUR IDENTITY & BEHAVIOR\n';
+            let personaBlock = '';
 
-            if (persona.agent_name || persona.agent_role || persona.organization_name) {
-                personaBlock += `You are ${persona.agent_name || 'an AI assistant'}`;
-                if (persona.agent_role) personaBlock += `, ${persona.agent_role}`;
-                if (persona.organization_name) personaBlock += ` at ${persona.organization_name}`;
-                personaBlock += '.\n';
+            // Add role context if specified (not identity — that's in the identity block)
+            if (persona.agent_role) {
+                personaBlock += `\n\n## YOUR ROLE\nYour role is: ${persona.agent_role}.\n`;
             }
 
             if (persona.tone) {
@@ -551,23 +556,25 @@ export async function POST(request: NextRequest) {
                     academic: 'Be scholarly, detailed, and cite-heavy.',
                     witty: 'Be clever, engaging, with light humor where appropriate.',
                 };
-                personaBlock += (toneMap[persona.tone] || '') + '\n';
+                personaBlock += `\n## TONE\n${toneMap[persona.tone] || ''}\n`;
             }
 
             if (persona.system_instructions) {
-                personaBlock += `\n## CREATOR\'S INSTRUCTIONS\n${persona.system_instructions}\n`;
+                personaBlock += `\n## CREATOR'S INSTRUCTIONS\n${persona.system_instructions}\n`;
             }
 
             if (persona.blocked_topics && persona.blocked_topics.length > 0) {
-                personaBlock += `\n## GUARDRAILS\nNEVER discuss these topics: ${persona.blocked_topics.join(', ')}. If asked about these, politely decline.\n`;
+                personaBlock += `\n## ⛔ BLOCKED TOPICS (STRICT):\nYou MUST NEVER discuss these topics under ANY circumstances: ${persona.blocked_topics.join(', ')}.\nIf a user asks about any of these, respond ONLY with: "I'm not able to discuss that topic. Is there something else I can help you with?"\nDo NOT provide partial answers, hints, or workarounds for blocked topics.\n`;
             }
 
             if (persona.fallback_message) {
-                personaBlock += `When you cannot answer a question, respond with: "${persona.fallback_message}"\n`;
+                personaBlock += `\nWhen you cannot answer a question, respond with: "${persona.fallback_message}"\n`;
             }
 
-            systemPrompt = personaBlock + '\n' + systemPrompt;
-            console.log('[Persona] Injected persona block (' + personaBlock.length + ' chars)');
+            if (personaBlock) {
+                systemPrompt += personaBlock;
+                console.log('[Persona] Injected persona behavior block (' + personaBlock.length + ' chars) | Identity: ' + (agentName || 'default') + ' @ ' + (orgName || 'Karr AI Global'));
+            }
         }
 
         // Inject adaptive personalization into the system prompt
