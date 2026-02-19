@@ -501,12 +501,14 @@ export async function POST(request: NextRequest) {
             // Continue without personalization
         }
 
-        // Step 3: Select system prompt based on Extended Knowledge mode
-        // Build prompt WITH persona identity baked into the identity protection block
-        // so there are no conflicting "You are" statements
+        // Step 3: Select system prompt based on mode
+        // Web mode and Full Power need the EXTENDED prompt so the LLM is allowed
+        // to call the web_search tool. STRICT prompt says "only use KB context",
+        // which prevents the LLM from searching the internet.
         const agentName = persona?.agent_name || null;
         const orgName = persona?.organization_name || null;
-        const basePrompt = enableExtendedKnowledge
+        const useExtendedPrompt = enableExtendedKnowledge || enableWebSearch;
+        const basePrompt = useExtendedPrompt
             ? buildExtendedModePrompt(agentName, orgName)
             : buildStrictModePrompt(agentName, orgName);
         // If a task system prompt is detected, prepend identity protection so
@@ -515,7 +517,11 @@ export async function POST(request: NextRequest) {
             ? buildIdentityProtectionBlock(agentName, orgName) + '\n\n' + taskSystemPrompt
             : basePrompt;
 
-        console.log('[Mode]', enableExtendedKnowledge ? 'EXTENDED (KB + General)' : 'STRICT (KB Only)');
+        const modeLabel = enableExtendedKnowledge && enableWebSearch ? 'FULL POWER'
+            : enableWebSearch ? 'WEB SEARCH'
+                : enableExtendedKnowledge ? 'EXTENDED'
+                    : 'STRICT';
+        console.log('[Mode]', modeLabel, `(extended prompt: ${useExtendedPrompt}, web search: ${enableWebSearch})`);
 
         // ============================================
         // INJECT AGENT PERSONA BEHAVIOR INTO SYSTEM PROMPT
