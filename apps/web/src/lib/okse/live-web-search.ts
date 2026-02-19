@@ -166,6 +166,71 @@ async function searchWithSerper(
 }
 
 // ============================================================================
+// SERPER.DEV SEARCH — OPEN INTERNET (LLM-Driven)
+// Used when the LLM explicitly requests a web search via function calling.
+// No site: restriction — searches the entire internet.
+// ============================================================================
+
+export async function searchSerperOpen(
+    query: string,
+    maxResults: number = 5
+): Promise<WebSearchResult[]> {
+    const apiKey = process.env.SERPER_API_KEY;
+    if (!apiKey) {
+        console.log('[OKSE] No Serper API key, skipping open search');
+        return [];
+    }
+
+    console.log(`[OKSE] Open internet search: "${query}"`);
+
+    try {
+        const response = await fetch('https://google.serper.dev/search', {
+            method: 'POST',
+            headers: {
+                'X-API-KEY': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                q: query,
+                num: maxResults,
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('[OKSE] Serper open search error:', response.status);
+            return [];
+        }
+
+        const data = await response.json();
+        const results: WebSearchResult[] = [];
+
+        for (const item of data.organic || []) {
+            try {
+                const url = new URL(item.link);
+                const domain = url.hostname.replace(/^www\./, '');
+
+                results.push({
+                    title: item.title || 'Untitled',
+                    url: item.link,
+                    snippet: item.snippet || '',
+                    domain,
+                    authority_score: 7, // Default for open internet sources
+                    cached: false,
+                });
+            } catch {
+                // Skip malformed URLs
+            }
+        }
+
+        console.log(`[OKSE] Open search returned ${results.length} results`);
+        return results;
+    } catch (error) {
+        console.error('[OKSE] Open Serper search failed:', error);
+        return [];
+    }
+}
+
+// ============================================================================
 // DIRECT SCRAPING FALLBACK
 // ============================================================================
 

@@ -13,7 +13,7 @@ export { semanticCache, SemanticCacheService } from './semantic-cache';
 export { knowledgeFusion, KnowledgeFusionService } from './knowledge-fusion';
 export { speculativeDrafting, SpeculativeDraftingService } from './speculative-drafting';
 export { webCrawler, WebCrawlerService } from './web-crawler';
-export { liveWebSearch, formatWebResultsForAI, extractPageContent } from './live-web-search';
+export { liveWebSearch, formatWebResultsForAI, extractPageContent, searchSerperOpen } from './live-web-search';
 
 // Types
 export type {

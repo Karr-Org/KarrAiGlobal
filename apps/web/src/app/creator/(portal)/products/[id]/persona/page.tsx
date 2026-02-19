@@ -529,7 +529,7 @@ export default function PersonaBuilderPage() {
                     </div>
                 </div>
 
-                {persona.website_crawl_status !== 'none' && persona.website_crawl_status && (
+                {persona.website_url && persona.website_url.trim() && (
                     <div className="mt-3 p-3 rounded-lg bg-[#f4f1ed] flex items-center justify-between">
                         <div className="text-[13px]">
                             {persona.website_crawl_status === 'completed' && (
@@ -551,6 +551,11 @@ export default function PersonaBuilderPage() {
                             {persona.website_crawl_status === 'error' && (
                                 <span className="text-red-700">❌ Crawl failed. Check the URL and try again.</span>
                             )}
+                            {(!persona.website_crawl_status || persona.website_crawl_status === 'none') && (
+                                <span className="text-[#8b8b8b]">
+                                    🌐 Ready to crawl — save persona or click Crawl Now
+                                </span>
+                            )}
                         </div>
                         <button
                             onClick={handleRecrawl}
@@ -558,7 +563,7 @@ export default function PersonaBuilderPage() {
                             className="text-[12px] text-[#c4715b] hover:text-[#a85a47] font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <RefreshCw className={`w-3 h-3 ${crawling ? 'animate-spin' : ''}`} />
-                            {crawling ? 'Crawling...' : 'Re-crawl'}
+                            {crawling ? 'Crawling...' : persona.website_crawl_status === 'completed' ? 'Re-crawl' : 'Crawl Now'}
                         </button>
                     </div>
                 )}
