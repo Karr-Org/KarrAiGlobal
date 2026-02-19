@@ -18,6 +18,7 @@ import {
     summarizeConversation,
     sanitizeUserInput,
     isConversationalQuery,
+    buildIdentityProtectionBlock,
     buildStrictModePrompt,
     buildExtendedModePrompt,
     STRICT_MODE_PROMPT,
@@ -531,7 +532,11 @@ export async function POST(request: NextRequest) {
         const basePrompt = enableExtendedKnowledge
             ? buildExtendedModePrompt(agentName, orgName)
             : buildStrictModePrompt(agentName, orgName);
-        let systemPrompt = taskSystemPrompt || basePrompt;
+        // If a task system prompt is detected, prepend identity protection so
+        // anti-jailbreak, prompt protection, and persona identity are never lost
+        let systemPrompt = taskSystemPrompt
+            ? buildIdentityProtectionBlock(agentName, orgName) + '\n\n' + taskSystemPrompt
+            : basePrompt;
 
         console.log('[Mode]', enableExtendedKnowledge ? 'EXTENDED (KB + General)' : 'STRICT (KB Only)');
 
