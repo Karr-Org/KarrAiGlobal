@@ -74,6 +74,7 @@ export default function PersonaBuilderPage() {
     const [testInput, setTestInput] = useState('');
     const [testResponse, setTestResponse] = useState('');
     const [testLoading, setTestLoading] = useState(false);
+    const [crawling, setCrawling] = useState(false);
 
     useEffect(() => {
         loadPersona();
@@ -122,6 +123,18 @@ export default function PersonaBuilderPage() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
+
+            // Update persona state with response (includes crawl status changes)
+            if (data.persona) {
+                setPersona(p => ({ ...p, ...data.persona }));
+            }
+
+            // If crawl was triggered, start polling for status
+            if (data.crawl_triggered) {
+                setCrawling(true);
+                pollCrawlStatus();
+            }
+
             setSaved(true);
             setTimeout(() => setSaved(false), 3000);
         } catch (err) {
@@ -130,6 +143,53 @@ export default function PersonaBuilderPage() {
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleRecrawl = async () => {
+        setCrawling(true);
+        setPersona(p => ({ ...p, website_crawl_status: 'crawling' }));
+        try {
+            const res = await fetch(`/api/products/${id}/persona`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'recrawl' }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            // Start polling for crawl completion
+            pollCrawlStatus();
+        } catch (err) {
+            console.error('Failed to trigger recrawl:', err);
+            setCrawling(false);
+            setPersona(p => ({ ...p, website_crawl_status: 'error' }));
+        }
+    };
+
+    const pollCrawlStatus = () => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/products/${id}/persona`);
+                const data = await res.json();
+                if (data.persona) {
+                    const status = data.persona.website_crawl_status;
+                    setPersona(p => ({
+                        ...p,
+                        website_crawl_status: status,
+                        website_pages_indexed: data.persona.website_pages_indexed || 0,
+                        website_last_crawled_at: data.persona.website_last_crawled_at,
+                    }));
+
+                    if (status !== 'crawling') {
+                        clearInterval(interval);
+                        setCrawling(false);
+                    }
+                }
+            } catch {
+                clearInterval(interval);
+                setCrawling(false);
+            }
+        }, 3000); // Poll every 3 seconds
     };
 
     const addBlockedTopic = () => {
@@ -492,9 +552,13 @@ export default function PersonaBuilderPage() {
                                 <span className="text-red-700">❌ Crawl failed. Check the URL and try again.</span>
                             )}
                         </div>
-                        <button className="text-[12px] text-[#c4715b] hover:text-[#a85a47] font-medium flex items-center gap-1">
-                            <RefreshCw className="w-3 h-3" />
-                            Re-crawl
+                        <button
+                            onClick={handleRecrawl}
+                            disabled={crawling}
+                            className="text-[12px] text-[#c4715b] hover:text-[#a85a47] font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <RefreshCw className={`w-3 h-3 ${crawling ? 'animate-spin' : ''}`} />
+                            {crawling ? 'Crawling...' : 'Re-crawl'}
                         </button>
                     </div>
                 )}
