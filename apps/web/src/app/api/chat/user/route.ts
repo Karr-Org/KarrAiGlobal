@@ -150,6 +150,13 @@ async function generateContentMultiTurn(
         }
 
         const data = JSON.parse(responseText);
+
+        // Handle Gemini safety blocks — match widget route behavior
+        if (data.candidates?.[0]?.finishReason === 'SAFETY') {
+            console.warn('[Multi-Turn] Response blocked by Gemini safety filters');
+            return 'I cannot respond to this query due to safety guidelines. Please rephrase your question.';
+        }
+
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!text) {
@@ -497,11 +504,12 @@ export async function POST(request: NextRequest) {
         // ============================================
 
         // Step 1: Rewrite query to resolve pronouns and references
-        const rewrittenQueryResult = rewriteQuery(query, conversationHistory as ConversationMessage[]);
+        // Use sanitizedQuery so injection patterns stripped earlier aren't re-introduced
+        const rewrittenQueryResult = rewriteQuery(sanitizedQuery, conversationHistory as ConversationMessage[]);
         const effectiveQuery = rewrittenQueryResult.rewritten;
 
         if (rewrittenQueryResult.isFollowUp) {
-            console.log(`[Query Rewrite] "${query}" → "${effectiveQuery}" (${rewrittenQueryResult.referenceType})`);
+            console.log(`[Query Rewrite] "${sanitizedQuery}" → "${effectiveQuery}" (${rewrittenQueryResult.referenceType})`);
         }
 
         // Step 2: Build adaptive intelligence context
