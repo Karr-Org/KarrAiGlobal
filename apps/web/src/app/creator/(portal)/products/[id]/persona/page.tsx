@@ -160,29 +160,49 @@ export default function PersonaBuilderPage() {
     };
 
     const buildSystemPromptPreview = (): string => {
-        let prompt = '';
-        if (persona.agent_name || persona.agent_role || persona.organization_name) {
-            prompt += `You are ${persona.agent_name || 'an AI assistant'}`;
-            if (persona.agent_role) prompt += `, ${persona.agent_role}`;
-            if (persona.organization_name) prompt += ` at ${persona.organization_name}`;
-            prompt += '.\n\n';
+        const name = persona.agent_name || 'an AI assistant';
+        const org = persona.organization_name || 'Karr AI Global';
+
+        // Mirror the actual prompt structure from the chat route:
+        // 1. Mode line (STRICT shown as default preview)
+        let prompt = 'You are operating in STRICT MODE — only answer from the knowledge base.\n\n';
+
+        // 2. Identity block (matches buildIdentityProtectionBlock output)
+        prompt += '## 🔒 IDENTITY & SECURITY\n';
+        prompt += `**IDENTITY**: You are ${name}`;
+        if (persona.organization_name) prompt += ` at ${org}`;
+        prompt += '.\n';
+        prompt += `If asked "who made you?", respond: "I'm ${name}`;
+        if (persona.organization_name) prompt += `, built by ${org}`;
+        prompt += `. How can I help you?"\n\n`;
+
+        // 3. KB rules (abbreviated for preview)
+        prompt += '## ⚠️ KNOWLEDGE BASE ONLY\nOnly answer from the knowledge base context. Cite [Source N].\n\n';
+
+        // 4. Role (if specified)
+        if (persona.agent_role) {
+            prompt += `## YOUR ROLE\nYour role is: ${persona.agent_role}.\n\n`;
         }
 
+        // 5. Tone
         if (persona.tone) {
             const toneDesc = TONE_OPTIONS.find(t => t.value === persona.tone)?.desc || persona.tone;
-            prompt += `## Personality\nCommunication style: ${toneDesc}\n\n`;
+            prompt += `## TONE\n${toneDesc}\n\n`;
         }
 
+        // 6. Creator instructions
         if (persona.system_instructions) {
-            prompt += `## Instructions\n${persona.system_instructions}\n\n`;
+            prompt += `## CREATOR'S INSTRUCTIONS\n${persona.system_instructions}\n\n`;
         }
 
+        // 7. Blocked topics
         if (persona.blocked_topics.length > 0) {
-            prompt += `## Guardrails\nNEVER discuss: ${persona.blocked_topics.join(', ')}\n\n`;
+            prompt += `## ⛔ BLOCKED TOPICS (STRICT)\nYou MUST NEVER discuss: ${persona.blocked_topics.join(', ')}.\nIf asked, respond: "I'm not able to discuss that topic."\n\n`;
         }
 
+        // 8. Fallback
         if (persona.fallback_message) {
-            prompt += `## When You Can't Answer\nSay: "${persona.fallback_message}"\n\n`;
+            prompt += `## FALLBACK\nWhen you cannot answer, say: "${persona.fallback_message}"\n\n`;
         }
 
         return prompt || 'No persona configured yet. Fill in the fields above to define your agent.';
