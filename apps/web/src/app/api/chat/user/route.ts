@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerBackgroundLearning } from '@/lib/cognitive/learning-orchestrator';
 import { buildAdaptiveConfig, detectEmotionalState } from '@/lib/cognitive/adaptive-intelligence';
-import { liveWebSearch } from '@/lib/okse/live-web-search';
 import { generateWithCitationTool, extractCitationsFallback } from '@/lib/okse/citation-tool';
 import type { CitationSource, InlineCitation } from '@/lib/okse/types';
 
@@ -323,42 +322,12 @@ export async function POST(request: NextRequest) {
         } // end: skip KB searches for conversational queries
 
         // ============================================
-        // 2.5. LIVE WEB SEARCH (OKSE Integration)
-        // Search trusted domains for relevant content
-        // Triggers when: user explicitly enables it OR when internal KB has NO results
+        // 2.5. KB EMPTY CHECK
+        // Web search is now handled by the LLM via function calling in the
+        // citation tool — no pre-search needed.
         // ============================================
         let webSearchUsed = false;
-        let kbWasEmpty = allChunks.length === 0; // Track if KB had no results
-
-        try {
-            // Only auto-trigger if KB is truly empty AND the query is substantive (not a greeting)
-            const shouldSearchWeb = enableWebSearch || (allChunks.length === 0 && !isConversational);
-
-            if (shouldSearchWeb) {
-                console.log(`[UserChat] Triggering live web search... (explicit: ${enableWebSearch}, KB empty: ${allChunks.length === 0})`);
-                const webResults = await liveWebSearch(query, productId, {
-                    fetchContent: true,
-                    maxResults: enableWebSearch ? 5 : 3 // More results if explicitly requested
-                });
-
-                if (webResults.results.length > 0) {
-                    webSearchUsed = true;
-                    console.log(`[UserChat] Web search found ${webResults.results.length} results from trusted domains`);
-
-                    webResults.results.forEach((result) => {
-                        allChunks.push({
-                            content: result.content || result.snippet,
-                            similarity: 0.75, // Good relevance from search engine
-                            title: `${result.title} [${result.domain}]`,
-                            type: 'web',
-                        });
-                    });
-                }
-            }
-        } catch (webError) {
-            console.error('[UserChat] Live web search failed:', webError);
-            // Continue without web results
-        }
+        let kbWasEmpty = allChunks.length === 0;
 
         // ============================================
         // 3. ENTITY MEMORY (Client/Case facts)
@@ -532,12 +501,14 @@ export async function POST(request: NextRequest) {
             // Continue without personalization
         }
 
-        // Step 3: Select system prompt based on Extended Knowledge mode
-        // Build prompt WITH persona identity baked into the identity protection block
-        // so there are no conflicting "You are" statements
+        // Step 3: Select system prompt based on mode
+        // Web mode and Full Power need the EXTENDED prompt so the LLM is allowed
+        // to call the web_search tool. STRICT prompt says "only use KB context",
+        // which prevents the LLM from searching the internet.
         const agentName = persona?.agent_name || null;
         const orgName = persona?.organization_name || null;
-        const basePrompt = enableExtendedKnowledge
+        const useExtendedPrompt = enableExtendedKnowledge || enableWebSearch;
+        const basePrompt = useExtendedPrompt
             ? buildExtendedModePrompt(agentName, orgName)
             : buildStrictModePrompt(agentName, orgName);
         // If a task system prompt is detected, prepend identity protection so
@@ -546,7 +517,11 @@ export async function POST(request: NextRequest) {
             ? buildIdentityProtectionBlock(agentName, orgName) + '\n\n' + taskSystemPrompt
             : basePrompt;
 
-        console.log('[Mode]', enableExtendedKnowledge ? 'EXTENDED (KB + General)' : 'STRICT (KB Only)');
+        const modeLabel = enableExtendedKnowledge && enableWebSearch ? 'FULL POWER'
+            : enableWebSearch ? 'WEB SEARCH'
+                : enableExtendedKnowledge ? 'EXTENDED'
+                    : 'STRICT';
+        console.log('[Mode]', modeLabel, `(extended prompt: ${useExtendedPrompt}, web search: ${enableWebSearch})`);
 
         // ============================================
         // INJECT AGENT PERSONA BEHAVIOR INTO SYSTEM PROMPT
@@ -610,12 +585,12 @@ export async function POST(request: NextRequest) {
         console.log('  - Top chunks count:', topChunks.length);
         console.log('  - Mode:', enableExtendedKnowledge ? 'EXTENDED' : 'STRICT');
 
-        // Step 5: Generate response — use citation tool when sources exist
+        // Step 5: Generate response — use citation tool when sources exist OR web search is on
         let response: string;
         let inlineCitations: InlineCitation[] = [];
         let citedSources: CitationSource[] = [];
 
-        if (topChunks.length > 0) {
+        if (topChunks.length > 0 || enableWebSearch) {
             // Convert ContextChunks to CitationSource format for the citation tool
             const sourcesForTool: CitationSource[] = topChunks.map((c, i) => ({
                 id: `chunk-${i}`,
@@ -635,12 +610,20 @@ export async function POST(request: NextRequest) {
                 const citationResult = await generateWithCitationTool(
                     multiTurnMessages,
                     sourcesForTool,
-                    { temperature: 0.7, maxOutputTokens: 2048 }
+                    {
+                        temperature: 0.7,
+                        maxOutputTokens: 2048,
+                        enableWebSearch, // Enables web_search tool in Web/Full Power modes
+                    }
                 );
                 response = citationResult.answer;
                 inlineCitations = citationResult.inlineCitations;
                 citedSources = citationResult.citedSources;
-                console.log('[UserChat] Citation tool: ', inlineCitations.length, 'inline citations,', citedSources.length, 'cited sources');
+
+                // Track if web sources were used (for metadata)
+                webSearchUsed = citedSources.some(s => s.type === 'web');
+
+                console.log('[UserChat] Citation tool: ', inlineCitations.length, 'inline citations,', citedSources.length, 'cited sources, web:', webSearchUsed);
             } catch (citationError) {
                 // Fallback: use standard generation if citation tool fails
                 console.error('[UserChat] Citation tool failed, falling back:', citationError);
@@ -662,7 +645,7 @@ export async function POST(request: NextRequest) {
                 }
             }
         } else {
-            // No sources — conversational query, use standard generation
+            // No sources and no web search — conversational query, use standard generation
             response = await generateContentMultiTurn(multiTurnMessages);
         }
 

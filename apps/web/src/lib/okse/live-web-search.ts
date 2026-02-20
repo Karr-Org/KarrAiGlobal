@@ -166,6 +166,71 @@ async function searchWithSerper(
 }
 
 // ============================================================================
+// SERPER.DEV SEARCH — OPEN INTERNET (LLM-Driven)
+// Used when the LLM explicitly requests a web search via function calling.
+// No site: restriction — searches the entire internet.
+// ============================================================================
+
+export async function searchSerperOpen(
+    query: string,
+    maxResults: number = 5
+): Promise<WebSearchResult[]> {
+    const apiKey = process.env.SERPER_API_KEY;
+    if (!apiKey) {
+        console.log('[OKSE] No Serper API key, skipping open search');
+        return [];
+    }
+
+    console.log(`[OKSE] Open internet search: "${query}"`);
+
+    try {
+        const response = await fetch('https://google.serper.dev/search', {
+            method: 'POST',
+            headers: {
+                'X-API-KEY': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                q: query,
+                num: maxResults,
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('[OKSE] Serper open search error:', response.status);
+            return [];
+        }
+
+        const data = await response.json();
+        const results: WebSearchResult[] = [];
+
+        for (const item of data.organic || []) {
+            try {
+                const url = new URL(item.link);
+                const domain = url.hostname.replace(/^www\./, '');
+
+                results.push({
+                    title: item.title || 'Untitled',
+                    url: item.link,
+                    snippet: item.snippet || '',
+                    domain,
+                    authority_score: 7, // Default for open internet sources
+                    cached: false,
+                });
+            } catch {
+                // Skip malformed URLs
+            }
+        }
+
+        console.log(`[OKSE] Open search returned ${results.length} results`);
+        return results;
+    } catch (error) {
+        console.error('[OKSE] Open Serper search failed:', error);
+        return [];
+    }
+}
+
+// ============================================================================
 // DIRECT SCRAPING FALLBACK
 // ============================================================================
 
@@ -292,11 +357,12 @@ async function getCachedResults(
     productId: string
 ): Promise<WebSearchResult[] | null> {
     try {
+        const normalized = query.toLowerCase().trim();
         const { data } = await supabaseAdmin
             .from('semantic_cache')
-            .select('cached_response, created_at')
+            .select('response, created_at')
             .eq('product_id', productId)
-            .eq('query_hash', hashQuery(query))
+            .eq('query_normalized', normalized)
             .single();
 
         if (!data) return null;
@@ -309,9 +375,13 @@ async function getCachedResults(
             return null; // Cache expired
         }
 
-        const cached = data.cached_response as any;
-        if (cached?.web_results) {
-            return cached.web_results.map((r: any) => ({ ...r, cached: true }));
+        try {
+            const cached = JSON.parse(data.response);
+            if (cached?.web_results) {
+                return cached.web_results.map((r: any) => ({ ...r, cached: true }));
+            }
+        } catch {
+            // response wasn't JSON (e.g. a regular cached AI response) — skip
         }
 
         return null;
@@ -326,31 +396,22 @@ async function cacheResults(
     results: WebSearchResult[]
 ): Promise<void> {
     try {
+        const normalized = query.toLowerCase().trim();
         await supabaseAdmin
             .from('semantic_cache')
             .upsert({
                 product_id: productId,
-                query_hash: hashQuery(query),
                 query_text: query,
-                cached_response: { web_results: results },
+                query_normalized: normalized,
+                response: JSON.stringify({ web_results: results }),
+                expires_at: new Date(Date.now() + CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString(),
                 created_at: new Date().toISOString(),
             }, {
-                onConflict: 'product_id, query_hash',
+                onConflict: 'product_id, query_normalized',
             });
     } catch (error) {
         console.error('[OKSE] Failed to cache results:', error);
     }
-}
-
-function hashQuery(query: string): string {
-    // Simple hash for cache key
-    let hash = 0;
-    for (let i = 0; i < query.length; i++) {
-        const char = query.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return `web_${Math.abs(hash).toString(16)}`;
 }
 
 // ============================================================================
@@ -431,31 +492,22 @@ export async function liveWebSearch(
 
 async function getTrustedDomains(productId: string): Promise<string[]> {
     try {
-        // Check knowledge_sources for trusted_web sources
+        // Query the OKSE trusted_web_sources table directly
         const { data: sources } = await supabaseAdmin
-            .from('knowledge_sources')
-            .select('config')
+            .from('trusted_web_sources')
+            .select('domain')
             .eq('product_id', productId)
-            .eq('source_type', 'trusted_web')
             .eq('is_active', true);
 
         if (sources && sources.length > 0) {
-            const domains: string[] = [];
-            for (const source of sources) {
-                const allowedDomains = source.config?.allowed_domains as string[] || [];
-                domains.push(...allowedDomains);
-            }
-
-            if (domains.length > 0) {
-                console.log(`[OKSE] Using ${domains.length} product-specific trusted domains`);
-                return [...new Set(domains)]; // Deduplicate
-            }
+            const domains = sources.map(s => s.domain);
+            console.log(`[OKSE] Using ${domains.length} product-specific trusted domains: ${domains.join(', ')}`);
+            return [...new Set(domains)]; // Deduplicate
         }
 
         // No product-specific domains configured — do NOT fall back to hardcoded defaults
         // The search function will safely refuse to search the internet without trusted domains
-        console.warn('[OKSE] No product-specific trusted domains configured. Web search will be skipped.');
-        console.warn('[OKSE] To enable web search, configure trusted domains in Knowledge Sources → Trusted Web.');
+        console.warn('[OKSE] No trusted domains configured for product. Web search will be skipped.');
         return [];
     } catch (error) {
         console.error('[OKSE] Error getting trusted domains:', error);
