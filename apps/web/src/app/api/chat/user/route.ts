@@ -767,20 +767,6 @@ If nothing worth remembering, return: {"should_remember": false}`;
                     excerpt: c.source.chunk_content ? c.source.chunk_content.substring(0, 120) : null,
                 } : null,
             })),
-            // Sources: only the ones the LLM actually cited (filtered)
-            sources: citedSources.length > 0
-                ? citedSources.map(s => ({
-                    title: s.title,
-                    excerpt: s.chunk_content.substring(0, 150) + '...',
-                    type: s.type === 'user_kb' ? 'private' : s.type === 'web' ? 'web' : 'global',
-                    icon: s.type === 'web' || s.type === 'live_web' ? '🌐' : s.type === 'user_kb' ? '📁' : '📚',
-                }))
-                : topChunks.slice(0, 5).map(c => ({
-                    title: c.title,
-                    excerpt: c.content.substring(0, 150) + '...',
-                    type: c.type === 'user' ? 'private' : c.type === 'web' ? 'web' : 'global',
-                    icon: c.type === 'web' ? '🌐' : c.type === 'user' ? '📁' : '📚',
-                })),
             memorySuggestions,
         });
 

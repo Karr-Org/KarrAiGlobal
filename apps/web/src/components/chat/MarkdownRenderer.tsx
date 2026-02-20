@@ -270,20 +270,13 @@ function renderInlineMarkdown(text: string, brandColor: string): React.ReactNode
  */
 interface AIMessageProps {
     content: string;
-    sources?: { title: string; excerpt: string; type: string }[];
     brandColor?: string;
-    showSources: boolean;
-    onToggleSources: () => void;
     confidence?: number;
 }
 
 export function AIMessage({
     content,
-    sources,
     brandColor = '#DA7B4D',
-    showSources,
-    onToggleSources,
-    confidence
 }: AIMessageProps) {
     return (
         <div className="bg-white border border-sand-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -291,85 +284,6 @@ export function AIMessage({
             <div className="px-5 py-4">
                 <MarkdownRenderer content={content} brandColor={brandColor} />
             </div>
-
-            {/* Sources Section */}
-            {sources && sources.length > 0 && (
-                <div className="border-t border-sand-100 px-5 py-3 bg-sand-50/50">
-                    <button
-                        onClick={onToggleSources}
-                        className="flex items-center gap-2 text-xs text-sand-500 hover:text-sand-700 transition-colors"
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={1.5}
-                                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                            />
-                        </svg>
-                        <span className="font-medium">{sources.length} sources</span>
-                        <svg
-                            className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-180' : ''}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-
-                        {confidence !== undefined && (
-                            <span className="ml-auto flex items-center gap-1">
-                                <span
-                                    className={`w-2 h-2 rounded-full ${confidence >= 0.8 ? 'bg-emerald-400' :
-                                            confidence >= 0.5 ? 'bg-amber-400' :
-                                                'bg-red-400'
-                                        }`}
-                                />
-                                <span className="text-sand-400">
-                                    {Math.round(confidence * 100)}% confidence
-                                </span>
-                            </span>
-                        )}
-                    </button>
-
-                    {showSources && (
-                        <div className="mt-3 space-y-2 animate-fadeIn">
-                            {sources.map((src, j) => (
-                                <div
-                                    key={j}
-                                    className="bg-white rounded-xl p-3 border border-sand-100 hover:border-sand-200 transition-colors"
-                                >
-                                    <div className="flex items-center gap-2 mb-1.5">
-                                        <span
-                                            className="w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-bold text-white"
-                                            style={{ backgroundColor: brandColor }}
-                                        >
-                                            {j + 1}
-                                        </span>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${src.type === 'private'
-                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                                : 'bg-violet-50 text-violet-700 border border-violet-100'
-                                            }`}>
-                                            {src.type === 'private' ? '📁 Your Document' : '📚 Knowledge Base'}
-                                        </span>
-                                        <span className="font-medium text-sand-800 text-sm truncate">
-                                            {src.title}
-                                        </span>
-                                    </div>
-                                    <p className="text-sand-500 text-xs leading-relaxed line-clamp-2 ml-7">
-                                        {src.excerpt}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }

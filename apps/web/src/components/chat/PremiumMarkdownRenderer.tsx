@@ -972,10 +972,7 @@ export function PremiumMarkdownRenderer({
 
 interface AIMessageProps {
     content: string;
-    sources?: { title: string; excerpt: string; type: string; icon?: string }[];
     brandColor?: string;
-    showSources: boolean;
-    onToggleSources: () => void;
     confidence?: number;
     kbWasEmpty?: boolean;
     inlineCitations?: InlineCitationData[];
@@ -983,17 +980,10 @@ interface AIMessageProps {
 
 export function AIMessage({
     content,
-    sources,
     brandColor = '#DA7B4D',
-    showSources,
-    onToggleSources,
-    confidence,
     kbWasEmpty,
     inlineCitations
 }: AIMessageProps) {
-    const hasInlineCitations = inlineCitations && inlineCitations.length > 0;
-    console.log('[DEBUG AIMessage] inlineCitations:', inlineCitations?.length, 'hasInline:', hasInlineCitations, 'sources:', sources?.length);
-
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -1008,88 +998,10 @@ export function AIMessage({
                 </div>
             )}
 
-            {/* Main Content — passes inlineCitations so [N] markers are stripped */}
+            {/* Main Content — inline citations render as superscript badges */}
             <div className="px-5 py-4">
                 <PremiumMarkdownRenderer content={content} brandColor={brandColor} inlineCitations={inlineCitations} />
             </div>
-
-
-            {/* Inline citations rendered as superscript badges within text */}
-
-            {!hasInlineCitations && sources && sources.length > 0 && (
-                <div className="border-t border-sand-100 px-5 py-3 bg-sand-50/50">
-                    <button
-                        onClick={onToggleSources}
-                        className="flex items-center gap-2 text-xs text-sand-500 hover:text-sand-700 transition-colors w-full"
-                    >
-                        <BookOpen className="w-4 h-4" />
-                        <span className="font-medium">{sources.length} sources</span>
-                        <ChevronRight
-                            className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-90' : ''}`}
-                        />
-
-                        {confidence !== undefined && (
-                            <span className="ml-auto flex items-center gap-1">
-                                <span
-                                    className={`w-2 h-2 rounded-full ${confidence >= 0.8 ? 'bg-emerald-400' :
-                                        confidence >= 0.5 ? 'bg-amber-400' :
-                                            'bg-red-400'
-                                        }`}
-                                />
-                                <span className="text-sand-400">
-                                    {Math.round(confidence * 100)}% confidence
-                                </span>
-                            </span>
-                        )}
-                    </button>
-
-                    <AnimatePresence>
-                        {showSources && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="mt-3 space-y-2 overflow-hidden"
-                            >
-                                {sources.map((src, j) => (
-                                    <motion.div
-                                        key={j}
-                                        initial={{ opacity: 0, x: -10 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: j * 0.05 }}
-                                        className="bg-white rounded-xl p-3 border border-sand-100 hover:border-sand-200 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <span
-                                                className="w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-bold text-white"
-                                                style={{ backgroundColor: brandColor }}
-                                            >
-                                                {j + 1}
-                                            </span>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${src.type === 'private'
-                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                                : src.type === 'web'
-                                                    ? 'bg-blue-50 text-blue-700 border border-blue-100'
-                                                    : 'bg-violet-50 text-violet-700 border border-violet-100'
-                                                }`}>
-                                                {src.type === 'private' ? '📁 Your Document'
-                                                    : src.type === 'web' ? '🌐 Web Source'
-                                                        : '📚 Knowledge Base'}
-                                            </span>
-                                            <span className="font-medium text-sand-800 text-sm truncate">
-                                                {src.title}
-                                            </span>
-                                        </div>
-                                        <p className="text-sand-500 text-xs leading-relaxed line-clamp-2 ml-7">
-                                            {src.excerpt}
-                                        </p>
-                                    </motion.div>
-                                ))}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            )}
         </motion.div>
     );
 }

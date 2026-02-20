@@ -41,7 +41,6 @@ interface Message {
     role: 'user' | 'assistant';
     content: string;
     timestamp: Date;
-    sources?: Source[];
     inlineCitations?: InlineCitationData[];
     confidence?: number;
     isStreaming?: boolean;
@@ -50,12 +49,7 @@ interface Message {
     error?: boolean;
 }
 
-interface Source {
-    title: string;
-    type: string;
-    authorityLevel: number;
-    preview: string;
-}
+
 
 interface ChatInterfaceProps {
     productId: string;
@@ -221,15 +215,7 @@ export function ChatInterface({
                 setSessionId(data.sessionId);
             }
 
-            // Map sources from API response
-            const apiSources: Source[] = (data.sources || []).map((s: any, i: number) => ({
-                title: s.title || s.document_title || `Source ${i + 1}`,
-                type: s.type || s.source_type || 'KB',
-                authorityLevel: s.authority_level || s.similarity || 0.8,
-                preview: s.excerpt || s.content?.substring(0, 150) || '',
-            }));
-
-            // Parse inline citations from API response (new citation system)
+            // Parse inline citations from API response
             const inlineCitations: InlineCitationData[] = (data.inline_citations || []).map((c: any) => ({
                 cited_text: c.cited_text || '',
                 source_index: c.source_index || 0,
@@ -242,7 +228,6 @@ export function ChatInterface({
                 content: data.answer || data.response || 'I was unable to generate a response.',
                 timestamp: new Date(),
                 confidence: data.confidence || data.metadata?.confidence || null,
-                sources: apiSources.length > 0 ? apiSources : undefined,
                 inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
             };
 
@@ -480,7 +465,7 @@ function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
     onCopy: (text: string, id: string) => void;
     copied: string | null;
 }) {
-    const [showSources, setShowSources] = useState(false);
+
     const isUser = message.role === 'user';
 
     return (
@@ -528,41 +513,9 @@ function MessageBubble({ message, onViewPresentation, onCopy, copied }: {
                     )}
                 </div>
 
-                {/* Sources & Actions for Assistant */}
+                {/* Actions for Assistant */}
                 {!isUser && !message.error && (
-                    <div className="mt-2 space-y-2">
-                        {/* Sources Toggle — only show as fallback when no inline citations */}
-                        {!message.inlineCitations && message.sources && message.sources.length > 0 && (
-                            <>
-                                <button
-                                    onClick={() => setShowSources(!showSources)}
-                                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
-                                >
-                                    <FileText className="w-3.5 h-3.5" />
-                                    <span>Sources ({message.sources.length})</span>
-                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-180' : ''}`} />
-                                </button>
-
-                                {/* Sources List */}
-                                {showSources && (
-                                    <div className="space-y-2 animate-fade-in">
-                                        {message.sources.map((source, i) => (
-                                            <div key={i} className="bg-gray-50 rounded-lg p-3 text-xs">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className="font-medium text-gray-900">{source.title}</span>
-                                                    <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">
-                                                        {source.type}
-                                                    </span>
-                                                </div>
-                                                <p className="text-gray-500 line-clamp-2">{source.preview}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </>
-                        )}
-
-                        {/* Action Buttons */}
+                    <div className="mt-2">
                         <div className="flex items-center gap-1">
                             <button
                                 onClick={() => onCopy(message.content, message.id)}
