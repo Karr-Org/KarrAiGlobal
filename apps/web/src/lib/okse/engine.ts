@@ -107,6 +107,7 @@ export class OKSEEngine {
             forceComplexity?: QueryComplexityLevel;
             skipCache?: boolean;
             enableLiveWeb?: boolean;
+            kbContext?: { titles: string[]; topicSummary?: string };
         }
     ): Promise<OKSEResponse> {
         const startTime = Date.now();
@@ -114,10 +115,10 @@ export class OKSEEngine {
 
         console.log('[OKSE] Processing query:', query.substring(0, 80) + '...');
 
-        // Step 1: Classify query complexity
+        // Step 1: Classify query complexity (with KB awareness if available)
         const classification = options?.forceComplexity
             ? { level: options.forceComplexity, reasoning: 'Forced', estimated_sources_needed: 5 }
-            : await queryRouter.classify(query);
+            : await queryRouter.classify(query, options?.kbContext);
 
         pipelineSteps.push(`complexity:${classification.level}`);
         console.log('[OKSE] Query classified as:', classification.level);
