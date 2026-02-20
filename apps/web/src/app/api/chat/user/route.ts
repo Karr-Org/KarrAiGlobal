@@ -418,6 +418,35 @@ export async function POST(request: NextRequest) {
         let kbWasEmpty = allChunks.length === 0;
 
         // ============================================
+        // 2.6. STRICT MODE GUARD — refuse off-topic queries
+        // In strict mode (no extended, no web), if KB returned 0 chunks
+        // for a non-conversational query, refuse instead of letting the
+        // LLM answer from training data.
+        // ============================================
+        const isStrictMode = !enableExtendedKnowledge && !enableWebSearch;
+        if (isStrictMode && !isConversational && kbWasEmpty) {
+            console.log('[UserChat] STRICT MODE: KB empty for non-conversational query — refusing');
+            const topicHint = kbTopicSummary
+                ? `My knowledge base covers **${kbTopicSummary}**.`
+                : kbTitles.length > 0
+                    ? `My knowledge base covers topics from: **${kbTitles.slice(0, 5).join(', ')}**${kbTitles.length > 5 ? ' and more' : ''}.`
+                    : '';
+
+            const refusalMessage = topicHint
+                ? `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\n${topicHint}\n\nTry asking me something related to those topics — I'm here to help! You can also switch to **Extended mode** for broader answers or **Web Search** for current information.`
+                : `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\nTry rephrasing or asking a different question. You can also enable **Extended mode** for broader answers or **Web Search** for current information.`;
+
+            return NextResponse.json({
+                answer: refusalMessage,
+                response: refusalMessage,
+                metadata: { task_detected: null, entity_detected: null },
+                reasoning: { confidence: 1.0, kbWasEmpty: true },
+                inline_citations: [],
+                memorySuggestions: [],
+            });
+        }
+
+        // ============================================
         // 3. ENTITY MEMORY (Client/Case facts)
         // ============================================
         const { data: detectedEntity } = await supabase.rpc('detect_entity_from_message', {
