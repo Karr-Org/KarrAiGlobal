@@ -68,7 +68,6 @@ import CognitiveProfileDashboard from '@/components/cognitive/CognitiveProfileDa
 interface Message {
     role: 'user' | 'assistant';
     content: string;
-    sources?: { title: string; excerpt: string; type: string; icon?: string }[];
     metadata?: {
         taskDetected?: string;
         entityDetected?: string;
@@ -129,7 +128,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [sending, setSending] = useState(false);
-    const [showSources, setShowSources] = useState<number | null>(null);
+
     const [sidebarOpen, setSidebarOpen] = useState(false); // Claude-style: collapsed by default, click to open
     const [showChatDropdown, setShowChatDropdown] = useState(false); // Chat title dropdown
     const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
@@ -431,7 +430,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
                 setMessages(data.messages.map((m: any) => ({
                     role: m.role,
                     content: m.content,
-                    sources: m.sources,
+
                 })));
                 setActiveTab('chat');
 
@@ -810,7 +809,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
             // Parse inline citations from the API response
             console.log('[DEBUG Citations] Raw API response inline_citations:', JSON.stringify(data.inline_citations));
-            console.log('[DEBUG Citations] Raw API response sources:', JSON.stringify(data.sources?.length));
+
             console.log('[DEBUG Citations] Response text preview:', responseText.substring(0, 200));
             const inlineCitations: InlineCitationData[] = (data.inline_citations || []).map((c: any) => ({
                 cited_text: c.cited_text || '',
@@ -825,7 +824,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
                 content: responseText,
-                sources: data.sources,
+
                 metadata: data.metadata,
                 kbWasEmpty: data.reasoning?.kbWasEmpty,
                 inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
@@ -834,7 +833,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
             // 🧠 COGNITIVE: Save assistant response to session
             if (sessionId) {
-                saveCognitiveMessage('assistant', responseText, data.sources);
+                saveCognitiveMessage('assistant', responseText);
 
                 // After 3+ messages, trigger title generation
                 const totalMessages = messages.length + 2; // +2 for the new user & assistant messages
@@ -1641,10 +1640,7 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                                                         }`}>
                                                         <AIMessage
                                                             content={msg.content}
-                                                            sources={msg.sources}
                                                             brandColor={brandColor}
-                                                            showSources={showSources === i}
-                                                            onToggleSources={() => setShowSources(showSources === i ? null : i)}
                                                             kbWasEmpty={msg.kbWasEmpty}
                                                             inlineCitations={msg.inlineCitations}
                                                         />

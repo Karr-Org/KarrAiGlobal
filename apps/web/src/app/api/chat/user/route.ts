@@ -254,6 +254,94 @@ export async function POST(request: NextRequest) {
             console.warn('[UserChat] No persona found, using defaults');
         }
 
+        // ============================================
+        // FETCH KB DOCUMENT TITLES + TOPIC SUMMARY
+        // Gives the system prompt and query router awareness of what's in the KB
+        // ============================================
+        let kbTitles: string[] = [];
+        let kbTopicSummary: string | undefined;
+
+        try {
+            // 1. Get all KB IDs linked to this product
+            const { data: kbLinks } = await supabase
+                .from('product_knowledge_bases')
+                .select('knowledge_base_id')
+                .eq('product_id', productId);
+
+            const kbIds = (kbLinks || []).map(l => l.knowledge_base_id);
+
+            if (kbIds.length > 0) {
+                // 2. Fetch document titles from linked KBs
+                const { data: kbDocs } = await supabase
+                    .from('knowledge_documents')
+                    .select('title')
+                    .in('knowledge_base_id', kbIds)
+                    .eq('status', 'active');
+
+                kbTitles = (kbDocs || []).map(d => d.title);
+                console.log('[UserChat] KB document titles:', kbTitles.length, 'docs:', kbTitles.slice(0, 5).join(', '));
+
+                // 3. Check for cached topic summary in product ai_config
+                const { data: product } = await supabase
+                    .from('products')
+                    .select('ai_config')
+                    .eq('id', productId)
+                    .single();
+
+                const cachedSummary = product?.ai_config?.kb_topic_summary;
+                const cachedDocCount = product?.ai_config?.kb_topic_doc_count;
+
+                if (cachedSummary && cachedDocCount === kbTitles.length) {
+                    // Cache is still valid (same doc count)
+                    kbTopicSummary = cachedSummary;
+                    console.log('[UserChat] Using cached KB topic summary:', kbTopicSummary?.substring(0, 80));
+                } else if (kbTitles.length > 0) {
+                    // Generate a new topic summary from titles
+                    try {
+                        const summaryPrompt = `Given these document titles from a knowledge base, write a ONE-LINE summary (max 150 chars) of what topics and domains this knowledge base covers. Be specific about the subject matter.\n\nDocument titles:\n${kbTitles.join('\n')}\n\nOne-line summary:`;
+
+                        const summaryResponse = await fetch(
+                            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{ parts: [{ text: summaryPrompt }] }],
+                                    generationConfig: { temperature: 0.1, maxOutputTokens: 100 },
+                                }),
+                            }
+                        );
+
+                        if (summaryResponse.ok) {
+                            const summaryData = await summaryResponse.json();
+                            kbTopicSummary = summaryData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+                            // Cache the summary in product ai_config
+                            if (kbTopicSummary) {
+                                const updatedConfig = {
+                                    ...(product?.ai_config || {}),
+                                    kb_topic_summary: kbTopicSummary,
+                                    kb_topic_doc_count: kbTitles.length,
+                                    kb_topic_updated_at: new Date().toISOString(),
+                                };
+                                await supabase
+                                    .from('products')
+                                    .update({ ai_config: updatedConfig })
+                                    .eq('id', productId);
+                                console.log('[UserChat] Generated and cached KB topic summary:', kbTopicSummary);
+                            }
+                        }
+                    } catch (summaryError) {
+                        console.warn('[UserChat] Failed to generate KB topic summary:', summaryError);
+                        // Non-critical — continue without topic summary
+                    }
+                }
+            }
+        } catch (kbError) {
+            console.warn('[UserChat] Failed to fetch KB titles:', kbError);
+            // Non-critical — continue without KB awareness
+        }
+
         const allChunks: ContextChunk[] = [];
 
         // Skip KB searches entirely for conversational queries (embedding is empty anyway)
@@ -328,6 +416,35 @@ export async function POST(request: NextRequest) {
         // ============================================
         let webSearchUsed = false;
         let kbWasEmpty = allChunks.length === 0;
+
+        // ============================================
+        // 2.6. STRICT MODE GUARD — refuse off-topic queries
+        // In strict mode (no extended, no web), if KB returned 0 chunks
+        // for a non-conversational query, refuse instead of letting the
+        // LLM answer from training data.
+        // ============================================
+        const isStrictMode = !enableExtendedKnowledge && !enableWebSearch;
+        if (isStrictMode && !isConversational && kbWasEmpty) {
+            console.log('[UserChat] STRICT MODE: KB empty for non-conversational query — refusing');
+            const topicHint = kbTopicSummary
+                ? `My knowledge base covers **${kbTopicSummary}**.`
+                : kbTitles.length > 0
+                    ? `My knowledge base covers topics from: **${kbTitles.slice(0, 5).join(', ')}**${kbTitles.length > 5 ? ' and more' : ''}.`
+                    : '';
+
+            const refusalMessage = topicHint
+                ? `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\n${topicHint}\n\nTry asking me something related to those topics — I'm here to help! You can also switch to **Extended mode** for broader answers or **Web Search** for current information.`
+                : `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\nTry rephrasing or asking a different question. You can also enable **Extended mode** for broader answers or **Web Search** for current information.`;
+
+            return NextResponse.json({
+                answer: refusalMessage,
+                response: refusalMessage,
+                metadata: { task_detected: null, entity_detected: null },
+                reasoning: { confidence: 1.0, kbWasEmpty: true },
+                inline_citations: [],
+                memorySuggestions: [],
+            });
+        }
 
         // ============================================
         // 3. ENTITY MEMORY (Client/Case facts)
@@ -570,6 +687,23 @@ export async function POST(request: NextRequest) {
             systemPrompt += '\n\n' + adaptivePrompt;
         }
 
+        // ============================================
+        // INJECT KB DOMAIN AWARENESS INTO SYSTEM PROMPT
+        // Tells the LLM what topics the KB covers so it doesn't
+        // default to "Based on general knowledge" for in-domain queries
+        // ============================================
+        if (kbTitles.length > 0) {
+            let kbAwarenessBlock = '\n\n## KB DOMAIN AWARENESS\n';
+            if (kbTopicSummary) {
+                kbAwarenessBlock += `Your knowledge base covers: ${kbTopicSummary}\n`;
+            }
+            kbAwarenessBlock += `Document titles in your KB: ${kbTitles.slice(0, 20).join(', ')}${kbTitles.length > 20 ? ` (and ${kbTitles.length - 20} more)` : ''}\n`;
+            kbAwarenessBlock += `If the user asks about ANY of these topics, ALWAYS search and cite the knowledge base first.\n`;
+            kbAwarenessBlock += `Do NOT prefix with "Based on general knowledge" if the topic matches your KB domain — treat it as a KB query.\n`;
+            systemPrompt += kbAwarenessBlock;
+            console.log('[UserChat] Injected KB domain awareness block (' + kbTitles.length + ' doc titles)');
+        }
+
         // Step 4: Build multi-turn messages for native Gemini format
         const multiTurnMessages = buildMultiTurnMessages(
             conversationHistory as ConversationMessage[],
@@ -767,20 +901,6 @@ If nothing worth remembering, return: {"should_remember": false}`;
                     excerpt: c.source.chunk_content ? c.source.chunk_content.substring(0, 120) : null,
                 } : null,
             })),
-            // Sources: only the ones the LLM actually cited (filtered)
-            sources: citedSources.length > 0
-                ? citedSources.map(s => ({
-                    title: s.title,
-                    excerpt: s.chunk_content.substring(0, 150) + '...',
-                    type: s.type === 'user_kb' ? 'private' : s.type === 'web' ? 'web' : 'global',
-                    icon: s.type === 'web' || s.type === 'live_web' ? '🌐' : s.type === 'user_kb' ? '📁' : '📚',
-                }))
-                : topChunks.slice(0, 5).map(c => ({
-                    title: c.title,
-                    excerpt: c.content.substring(0, 150) + '...',
-                    type: c.type === 'user' ? 'private' : c.type === 'web' ? 'web' : 'global',
-                    icon: c.type === 'web' ? '🌐' : c.type === 'user' ? '📁' : '📚',
-                })),
             memorySuggestions,
         });
 

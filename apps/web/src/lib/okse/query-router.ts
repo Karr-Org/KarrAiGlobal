@@ -27,7 +27,32 @@ interface RuleResult {
     reason: string;
 }
 
-function applyRules(query: string): RuleResult {
+/**
+ * Extract meaningful keywords from KB document titles for matching.
+ * Strips common filler words and returns unique lowercase keywords (3+ chars).
+ */
+function extractTitleKeywords(titles: string[]): Set<string> {
+    const stopWords = new Set([
+        'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were',
+        'been', 'has', 'have', 'had', 'its', 'not', 'but', 'all', 'any', 'can',
+        'will', 'may', 'shall', 'act', 'bill', 'new', 'old', 'pdf', 'doc', 'txt',
+        'csv', 'xlsx', 'docx', 'file', 'document', 'chapter', 'section', 'part',
+        'vol', 'volume', 'page', 'pages', 'draft', 'final', 'version', 'copy',
+    ]);
+    const keywords = new Set<string>();
+    for (const title of titles) {
+        // Split on non-alphanumeric (handles underscores, hyphens, spaces)
+        const words = title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+        for (const w of words) {
+            if (w.length >= 3 && !stopWords.has(w) && !/^\d+$/.test(w)) {
+                keywords.add(w);
+            }
+        }
+    }
+    return keywords;
+}
+
+function applyRules(query: string, kbTitles?: string[]): RuleResult {
     const normalizedQuery = query.toLowerCase().trim();
     const wordCount = normalizedQuery.split(/\s+/).length;
 
@@ -69,12 +94,26 @@ function applyRules(query: string): RuleResult {
         }
     }
 
+    // Rule 0.4: KB title keyword guard — if query matches KB topics, skip GENERAL_KNOWLEDGE
+    // This runs BEFORE general knowledge patterns to prevent false positives
+    if (kbTitles && kbTitles.length > 0) {
+        const titleKeywords = extractTitleKeywords(kbTitles);
+        const queryWords = normalizedQuery.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+        const matchedKeywords = queryWords.filter(w => titleKeywords.has(w));
+
+        if (matchedKeywords.length > 0) {
+            console.log('[QueryRouter] KB keyword match detected:', matchedKeywords.join(', '), '— skipping GENERAL_KNOWLEDGE');
+            // Don't return GENERAL_KNOWLEDGE — let it fall through to SIMPLE/MODERATE classification
+            // We'll continue to the complexity rules below
+        }
+    }
+
     // Rule 0.5: General knowledge — tight whitelist of clearly off-topic patterns
     // These ONLY match queries that are obviously unrelated to ANY product domain
     const generalKnowledgePatterns = [
         /^(what\s+is\s+)?\d+[\s]*[+\-*/×÷%^]\s*\d+/i,                                    // Math: "2+2", "what is 5*3"
         /^calculate\s+\d/i,                                                                 // "calculate 500..."
-        /^(how\s+much\s+is\s+)?\d+(\.\d+)?\s*%\s+(of|from)\s+\d/i,                         // "18% of 5000"
+        /^(how\s+much\s+is\s+)?\d+(\. \d+)?\s*%\s+(of|from)\s+\d/i,                        // "18% of 5000"
         /^what\s+(time|day|date)\s+is\s+it/i,                                               // "what time is it"
         /^translate\s+.+\s+to\s+\w+/i,                                                      // "translate hello to Hindi"
         /^why\s+(is|are)\s+the\s+(sky|sun|moon|ocean|grass|earth)\b/i,                       // "why is the sky blue"
@@ -82,7 +121,18 @@ function applyRules(query: string): RuleResult {
         /^who\s+(won|scored|played)\s+(the|in)\s+(world\s+cup|olympics|super\s+bowl|oscars)/i, // "who won the world cup"
     ];
 
+    // Only classify as GENERAL_KNOWLEDGE if NO KB keyword matches were found
     if (generalKnowledgePatterns.some(p => p.test(query))) {
+        // Double-check: if KB titles contain related keywords, don't short-circuit
+        if (kbTitles && kbTitles.length > 0) {
+            const titleKeywords = extractTitleKeywords(kbTitles);
+            const queryWords = normalizedQuery.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+            const hasKBOverlap = queryWords.some(w => titleKeywords.has(w));
+            if (hasKBOverlap) {
+                console.log('[QueryRouter] General knowledge pattern matched BUT KB keyword overlap found — routing to SIMPLE instead');
+                return { level: 'SIMPLE', confidence: 0.85, reason: 'Query matches general knowledge pattern but overlaps with KB topics' };
+            }
+        }
         return { level: 'GENERAL_KNOWLEDGE', confidence: 0.95, reason: 'Clearly off-topic general knowledge query (math, trivia, utility)' };
     }
 
@@ -165,7 +215,12 @@ function applyRules(query: string): RuleResult {
 // LLM-BASED CLASSIFICATION (For edge cases)
 // ============================================================================
 
-const CLASSIFICATION_PROMPT = `You are a query complexity classifier for a professional knowledge AI system.
+function buildClassificationPrompt(query: string, kbContext?: string): string {
+    const kbAwarenessBlock = kbContext
+        ? `\n\n## CRITICAL — KNOWLEDGE BASE AWARENESS:\nThis AI's knowledge base contains documents about: ${kbContext}.\nIf the query relates to ANY topic covered by these documents — even if it sounds like a general question — you MUST classify it as SIMPLE, MODERATE, COMPLEX, or MULTI_HOP. Do NOT classify it as GENERAL_KNOWLEDGE.\nOnly use GENERAL_KNOWLEDGE for queries that are completely unrelated to the above topics (e.g., pure math, geography trivia, sports scores).`
+        : '';
+
+    return `You are a query complexity classifier for a professional knowledge AI system.
 
 Classify the following query into one of these levels:
 
@@ -198,9 +253,9 @@ COMPLEX: Multiple conditions, edge cases, what-if scenarios, exception handling
 MULTI_HOP: Cross-document reasoning, comparisons between laws/concepts
 - "Compare ITC rules under GST vs depreciation under Income Tax"
 - "Difference between CGST and IGST on interstate supply"
-- "How does reverse charge mechanism relate to input tax credit?"
+- "How does reverse charge mechanism relate to input tax credit?"${kbAwarenessBlock}
 
-Query: "{query}"
+Query: "${query}"
 
 Respond in JSON format:
 {
@@ -208,9 +263,10 @@ Respond in JSON format:
   "reasoning": "Brief explanation",
   "sub_queries": ["Only for MULTI_HOP: decomposed sub-queries"]
 }`;
+}
 
-async function classifyWithLLM(query: string): Promise<QueryClassification> {
-    const prompt = CLASSIFICATION_PROMPT.replace('{query}', query);
+async function classifyWithLLM(query: string, kbContext?: string): Promise<QueryClassification> {
+    const prompt = buildClassificationPrompt(query, kbContext);
 
     try {
         const response = await generateContentWithGemini(prompt, {
@@ -261,13 +317,23 @@ export class QueryComplexityRouter {
     private llmConfidenceThreshold = 0.6;
 
     /**
-     * Classify a query and return the appropriate pipeline configuration
+     * Classify a query and return the appropriate pipeline configuration.
+     * @param query The user's query
+     * @param kbContext Optional KB awareness: { titles: string[], topicSummary?: string }
      */
-    async classify(query: string): Promise<QueryClassification> {
+    async classify(query: string, kbContext?: { titles: string[]; topicSummary?: string }): Promise<QueryClassification> {
         console.log('[QueryRouter] Classifying query:', query.substring(0, 50) + '...');
+        if (kbContext?.titles.length) {
+            console.log('[QueryRouter] KB context:', kbContext.titles.length, 'documents,', kbContext.topicSummary ? 'has topic summary' : 'no topic summary');
+        }
 
-        // Step 1: Try rule-based classification
-        const ruleResult = applyRules(query);
+        // Build a combined context string for the LLM prompt
+        const kbContextStr = kbContext
+            ? [kbContext.topicSummary, kbContext.titles.join(', ')].filter(Boolean).join('. Documents: ')
+            : undefined;
+
+        // Step 1: Try rule-based classification (with KB title keywords)
+        const ruleResult = applyRules(query, kbContext?.titles);
         console.log('[QueryRouter] Rule-based result:', ruleResult);
 
         // Step 2: If confidence is high enough, use rule result
@@ -279,9 +345,9 @@ export class QueryComplexityRouter {
             };
         }
 
-        // Step 3: Use LLM for edge cases
+        // Step 3: Use LLM for edge cases (with KB context injected into prompt)
         console.log('[QueryRouter] Low confidence, using LLM classification');
-        const llmResult = await classifyWithLLM(query);
+        const llmResult = await classifyWithLLM(query, kbContextStr);
 
         return llmResult;
     }
@@ -296,8 +362,8 @@ export class QueryComplexityRouter {
     /**
      * Quick classification without LLM (for performance-critical paths)
      */
-    classifyFast(query: string): QueryClassification {
-        const ruleResult = applyRules(query);
+    classifyFast(query: string, kbTitles?: string[]): QueryClassification {
+        const ruleResult = applyRules(query, kbTitles);
         return {
             level: ruleResult.level,
             reasoning: ruleResult.reason,
