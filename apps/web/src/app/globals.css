@@ -247,6 +247,10 @@
   background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
 
+.premium-markdown .inline-cite.cite-neutral .cite-icon {
+  background: linear-gradient(135deg, #9ca3af, #6b7280);
+}
+
 .premium-markdown .inline-cite:hover .cite-icon {
   transform: scale(1.15);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);

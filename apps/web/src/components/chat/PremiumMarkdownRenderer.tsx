@@ -894,13 +894,24 @@ function createCustomComponents(brandColor: string, citationMap?: Map<number, In
             if (dataCite && citationMap) {
                 const idx = parseInt(dataCite, 10);
                 const cit = citationMap.get(idx);
-                const title = cit?.source?.title || `Source ${idx}`;
-                const excerpt = cit?.source?.excerpt || '';
-                const type = cit?.source?.type || 'kb';
+
+                // If citation data is missing (LLM cited an index not in resolved citations),
+                // render a plain neutral superscript instead of a misleading KB/web badge
+                if (!cit) {
+                    return (
+                        <sup className="inline-cite cite-neutral">
+                            <span className="cite-icon">{idx}</span>
+                        </sup>
+                    );
+                }
+
+                const title = cit.source?.title || `Source ${idx}`;
+                const excerpt = cit.source?.excerpt || '';
+                const type = cit.source?.type || 'web';
                 const isWeb = type === 'web' || type === 'live_web';
                 const typeLabel = isWeb ? '🌐 Web' : '📚 Knowledge Base';
                 const typeClass = isWeb ? 'cite-web' : 'cite-kb';
-                const url = cit?.source?.url || '';
+                const url = cit.source?.url || '';
 
                 return (
                     <span className="inline-cite-wrap">
