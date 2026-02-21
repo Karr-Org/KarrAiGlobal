@@ -431,7 +431,10 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
                 setMessages(data.messages.map((m: any) => ({
                     role: m.role,
                     content: m.content,
-
+                    // Restore inline citations from persisted sources
+                    inlineCitations: m.sources && Array.isArray(m.sources) && m.sources.length > 0
+                        ? m.sources as InlineCitationData[]
+                        : undefined,
                 })));
                 setActiveTab('chat');
 
@@ -450,14 +453,19 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
 
     // Save a message to the current session
-    const saveCognitiveMessage = async (role: 'user' | 'assistant', content: string, sources?: any[]) => {
+    const saveCognitiveMessage = async (role: 'user' | 'assistant', content: string, inlineCitations?: InlineCitationData[]) => {
         if (!currentSessionId) return;
 
         try {
             await fetch(`/api/cognitive/sessions/${currentSessionId}/messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role, content, sources }),
+                body: JSON.stringify({
+                    role,
+                    content,
+                    // Persist inline citations in the sources JSONB column
+                    sources: inlineCitations && inlineCitations.length > 0 ? inlineCitations : undefined,
+                }),
             });
         } catch (error) {
             console.error('Failed to save message:', error);
@@ -813,7 +821,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
             // 🧠 COGNITIVE: Save assistant response to session
             if (sessionId) {
-                saveCognitiveMessage('assistant', responseText);
+                saveCognitiveMessage('assistant', responseText, inlineCitations.length > 0 ? inlineCitations : undefined);
 
                 // After 3+ messages, trigger title generation
                 const totalMessages = messages.length + 2; // +2 for the new user & assistant messages
@@ -1621,7 +1629,6 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                                                         <AIMessage
                                                             content={msg.content}
                                                             brandColor={brandColor}
-                                                            kbWasEmpty={msg.kbWasEmpty}
                                                             inlineCitations={msg.inlineCitations}
                                                         />
                                                     </div>
