@@ -1,65 +1,85 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-    Search,
-    CheckCircle2,
-    Sparkles,
-    ChevronDown,
-    ChevronUp,
-    Loader2,
-    Globe,
-    Database,
-    Shield,
-    Zap
-} from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 
 /**
- * 🧠 KARR AI - WORLD-CLASS THINKING INDICATOR
+ * 🧠 KARR AI - MODE-AWARE THINKING INDICATOR
  * 
- * Inspired by Claude & ChatGPT's minimal, elegant design.
+ * Clean, honest loading states based on the active chat mode.
+ * No fake sources, no simulated CRAG, no fabricated confidence scores.
  * 
- * Philosophy:
- * - Minimal by default (single animated line)
- * - Expandable for power users
- * - Beautiful micro-animations
- * - Never steals focus from the answer
+ * Stages cycle on fixed timers per mode, with a composing phase
+ * that transitions to random fallback messages if the response takes long.
  */
 
-export type ThinkingStage =
-    | 'idle'
-    | 'searching'
-    | 'evaluating'
-    | 'correcting'
-    | 'generating'
-    | 'complete';
+// ============================================================================
+// TYPES
+// ============================================================================
 
-export interface SourceHit {
-    name: string;
-    type: 'internal' | 'web' | 'api';
-    trustLevel: number;
-    matched: boolean;
-}
+export type ChatMode = 'strict' | 'extended' | 'web' | 'full_power';
 
 export interface ThinkingState {
-    stage: ThinkingStage;
-    progress: number;
+    active: boolean;
     message: string;
-    details?: string;
-    sourcesSearched?: SourceHit[];
-    cragVerdict?: 'RELEVANT' | 'AMBIGUOUS' | 'IRRELEVANT' | 'NO_RESULTS';
-    cragConfidence?: number;
-    webFallbackUsed?: boolean;
+    complete: boolean;
 }
 
 interface ThinkingProcessProps {
     state: ThinkingState;
     brandColor?: string;
-    compact?: boolean; // Kept for backward compatibility, but now always compact
 }
 
-// Animated typing dots component
+// ============================================================================
+// STAGE DEFINITIONS PER MODE
+// ============================================================================
+
+interface Stage {
+    message: string;
+    /** Duration in ms. If 0 = composing phase (special handling) */
+    duration: number;
+}
+
+const MODE_STAGES: Record<ChatMode, Stage[]> = {
+    strict: [
+        { message: 'Searching knowledge base...', duration: 1000 },
+        { message: 'Composing response...', duration: 0 }, // composing phase
+    ],
+    extended: [
+        { message: 'Searching knowledge base...', duration: 1000 },
+        { message: 'Connecting related concepts...', duration: 1000 },
+        { message: 'Composing response...', duration: 0 },
+    ],
+    web: [
+        { message: 'Searching the web...', duration: 1500 },
+        { message: 'Verifying sources...', duration: 1800 },
+        { message: 'Composing response...', duration: 0 },
+    ],
+    full_power: [
+        { message: 'Searching knowledge base...', duration: 1000 },
+        { message: 'Searching the web...', duration: 1500 },
+        { message: 'Analyzing relevant information...', duration: 1000 },
+        { message: 'Composing response...', duration: 0 },
+    ],
+};
+
+const FALLBACK_MESSAGES = [
+    'Synthesizing insights...',
+    'Structuring a clear answer...',
+    'Refining the response...',
+    'Cross-checking details...',
+    'Organizing key points...',
+    'Optimizing clarity and accuracy...',
+    'Finalizing the response...',
+    'Reviewing for completeness...',
+    'Preparing the final answer...',
+];
+
+// ============================================================================
+// TYPING DOTS
+// ============================================================================
+
 function TypingDots({ color }: { color: string }) {
     return (
         <span className="inline-flex items-center gap-[3px] ml-1">
@@ -84,65 +104,12 @@ function TypingDots({ color }: { color: string }) {
     );
 }
 
-// Stage icon with animation
-function StageIcon({ stage, color, isActive }: { stage: ThinkingStage; color: string; isActive: boolean }) {
-    const iconClass = "w-4 h-4";
-
-    if (!isActive) {
-        return <CheckCircle2 className={`${iconClass} text-emerald-500`} />;
-    }
-
-    const iconMap = {
-        searching: Search,
-        evaluating: Shield,
-        correcting: Globe,
-        generating: Sparkles,
-        complete: CheckCircle2,
-        idle: Loader2,
-    };
-
-    const Icon = iconMap[stage] || Loader2;
-
-    return (
-        <motion.div
-            animate={{ rotate: stage === 'searching' ? 360 : 0 }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-        >
-            <Icon className={iconClass} style={{ color }} />
-        </motion.div>
-    );
-}
-
-// Main message based on stage
-function getStageMessage(stage: ThinkingStage): string {
-    switch (stage) {
-        case 'searching': return 'Searching knowledge';
-        case 'evaluating': return 'Evaluating sources';
-        case 'correcting': return 'Verifying information';
-        case 'generating': return 'Generating response';
-        case 'complete': return 'Complete';
-        default: return 'Thinking';
-    }
-}
+// ============================================================================
+// THINKING PROCESS COMPONENT
+// ============================================================================
 
 export function ThinkingProcess({ state, brandColor = '#DA7B4D' }: ThinkingProcessProps) {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const [showSourcesAnimation, setShowSourcesAnimation] = useState(false);
-
-    // Trigger source animation when sources are updated
-    useEffect(() => {
-        if (state.sourcesSearched && state.sourcesSearched.length > 0) {
-            setShowSourcesAnimation(true);
-            const timer = setTimeout(() => setShowSourcesAnimation(false), 500);
-            return () => clearTimeout(timer);
-        }
-    }, [state.sourcesSearched]);
-
-    // Don't render if idle
-    if (state.stage === 'idle') return null;
-
-    const isComplete = state.stage === 'complete';
-    const matchedSources = state.sourcesSearched?.filter(s => s.matched) || [];
+    if (!state.active && !state.complete) return null;
 
     return (
         <motion.div
@@ -150,30 +117,25 @@ export function ThinkingProcess({ state, brandColor = '#DA7B4D' }: ThinkingProce
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="relative"
         >
-            {/* Main Compact Indicator - Always Visible */}
             <motion.div
                 className={`
                     flex items-center gap-3 py-2.5 px-4 rounded-2xl
-                    transition-all duration-300 cursor-pointer
-                    ${isComplete
+                    transition-all duration-300
+                    ${state.complete
                         ? 'bg-emerald-50 border border-emerald-200'
-                        : 'bg-gradient-to-r from-sand-50 to-sand-100 border border-sand-200 hover:border-sand-300'
+                        : 'bg-gradient-to-r from-sand-50 to-sand-100 border border-sand-200'
                     }
                 `}
-                onClick={() => setIsExpanded(!isExpanded)}
-                whileHover={{ scale: 1.005 }}
-                whileTap={{ scale: 0.995 }}
             >
                 {/* Animated Icon */}
                 <div
                     className={`
                         w-7 h-7 rounded-lg flex items-center justify-center
-                        ${isComplete ? 'bg-emerald-100' : 'bg-white shadow-sm'}
+                        ${state.complete ? 'bg-emerald-100' : 'bg-white shadow-sm'}
                     `}
                 >
-                    {isComplete ? (
+                    {state.complete ? (
                         <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
@@ -196,255 +158,218 @@ export function ThinkingProcess({ state, brandColor = '#DA7B4D' }: ThinkingProce
                     <div className="flex items-center gap-2">
                         <AnimatePresence mode="wait">
                             <motion.span
-                                key={state.stage}
+                                key={state.message}
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 10 }}
-                                className={`text-sm font-medium ${isComplete ? 'text-emerald-700' : 'text-sand-700'}`}
+                                className={`text-sm font-medium ${state.complete ? 'text-emerald-700' : 'text-sand-700'}`}
                             >
-                                {getStageMessage(state.stage)}
+                                {state.message}
                             </motion.span>
                         </AnimatePresence>
-                        {!isComplete && <TypingDots color={brandColor} />}
+                        {!state.complete && <TypingDots color={brandColor} />}
                     </div>
-
-                    {/* Subtle source count - appears when sources are found */}
-                    <AnimatePresence>
-                        {matchedSources.length > 0 && !isComplete && (
-                            <motion.p
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="text-xs text-sand-500 mt-0.5"
-                            >
-                                Found {matchedSources.length} relevant source{matchedSources.length !== 1 ? 's' : ''}
-                            </motion.p>
-                        )}
-                    </AnimatePresence>
                 </div>
-
-                {/* Expand/Collapse Button */}
-                <motion.button
-                    className="p-1.5 rounded-lg hover:bg-white/50 transition-colors"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                >
-                    {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-sand-400" />
-                    ) : (
-                        <ChevronDown className="w-4 h-4 text-sand-400" />
-                    )}
-                </motion.button>
             </motion.div>
-
-            {/* Expanded Details - Click to Show */}
-            <AnimatePresence>
-                {isExpanded && !isComplete && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                    >
-                        <div className="mt-2 p-4 rounded-xl bg-white border border-sand-200 space-y-3">
-                            {/* Progress Steps - Horizontal Compact */}
-                            <div className="flex items-center gap-2">
-                                {(['searching', 'evaluating', 'generating'] as ThinkingStage[]).map((stageId, i) => {
-                                    const isPast = ['searching', 'evaluating', 'correcting', 'generating', 'complete'].indexOf(state.stage) > i;
-                                    const isCurrent = state.stage === stageId ||
-                                        (state.stage === 'correcting' && stageId === 'evaluating');
-
-                                    return (
-                                        <div key={stageId} className="flex items-center">
-                                            <motion.div
-                                                className={`
-                                                    w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium
-                                                    ${isPast ? 'bg-emerald-100 text-emerald-600' :
-                                                        isCurrent ? 'border-2' : 'bg-sand-100 text-sand-400'}
-                                                `}
-                                                style={isCurrent ? { borderColor: brandColor, color: brandColor } : {}}
-                                                animate={isCurrent ? { scale: [1, 1.1, 1] } : {}}
-                                                transition={{ duration: 0.5, repeat: Infinity }}
-                                            >
-                                                {isPast ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
-                                            </motion.div>
-                                            {i < 2 && (
-                                                <div className="w-8 h-0.5 bg-sand-200 mx-1">
-                                                    <motion.div
-                                                        className="h-full rounded-full"
-                                                        style={{ backgroundColor: brandColor }}
-                                                        initial={{ width: 0 }}
-                                                        animate={{ width: isPast ? '100%' : isCurrent ? '50%' : '0%' }}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Sources Searched */}
-                            {state.sourcesSearched && state.sourcesSearched.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {state.sourcesSearched.map((source, i) => (
-                                        <motion.div
-                                            key={i}
-                                            initial={{ opacity: 0, scale: 0.8 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            transition={{ delay: i * 0.05 }}
-                                            className={`
-                                                inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium
-                                                ${source.matched
-                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                    : 'bg-sand-100 text-sand-500'}
-                                            `}
-                                        >
-                                            {source.type === 'internal' && <Database className="w-3 h-3" />}
-                                            {source.type === 'web' && <Globe className="w-3 h-3" />}
-                                            {source.name}
-                                            {source.matched && <CheckCircle2 className="w-3 h-3" />}
-                                        </motion.div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* CRAG Confidence */}
-                            {state.cragConfidence !== undefined && (
-                                <div className="flex items-center gap-2">
-                                    <Zap className="w-3.5 h-3.5 text-amber-500" />
-                                    <span className="text-xs text-sand-600">
-                                        Confidence: {Math.round(state.cragConfidence * 100)}%
-                                    </span>
-                                    <div className="flex-1 h-1.5 bg-sand-100 rounded-full overflow-hidden">
-                                        <motion.div
-                                            className="h-full rounded-full"
-                                            style={{ backgroundColor: brandColor }}
-                                            initial={{ width: 0 }}
-                                            animate={{ width: `${state.cragConfidence * 100}%` }}
-                                            transition={{ duration: 0.5 }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Web Fallback Notice */}
-                            {state.webFallbackUsed && (
-                                <div className="flex items-center gap-2 text-xs text-blue-600">
-                                    <Globe className="w-3.5 h-3.5" />
-                                    <span>Supplementing with web sources</span>
-                                </div>
-                            )}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </motion.div>
     );
 }
 
-/**
- * Hook to manage thinking state with automatic progression
- */
+// ============================================================================
+// HOOK: useThinkingState
+// ============================================================================
+
 export function useThinkingState() {
     const [state, setState] = useState<ThinkingState>({
-        stage: 'idle',
-        progress: 0,
+        active: false,
         message: '',
+        complete: false,
     });
 
-    const startThinking = (query: string) => {
+    // Track whether response has arrived
+    const responseReady = useRef(false);
+    // Track timers for cleanup
+    const timersRef = useRef<NodeJS.Timeout[]>([]);
+    // Track the composing interval
+    const composingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    // Track used fallback messages to avoid repeats
+    const usedFallbacksRef = useRef<Set<number>>(new Set());
+
+    const clearAllTimers = useCallback(() => {
+        timersRef.current.forEach(clearTimeout);
+        timersRef.current = [];
+        if (composingIntervalRef.current) {
+            clearInterval(composingIntervalRef.current);
+            composingIntervalRef.current = null;
+        }
+        if (pendingCompleteTimerRef.current) {
+            clearTimeout(pendingCompleteTimerRef.current);
+            pendingCompleteTimerRef.current = null;
+        }
+    }, []);
+
+    /**
+     * Pick a random fallback message that hasn't been used yet.
+     * Resets the pool if all have been used.
+     */
+    const pickFallback = useCallback((): string => {
+        if (usedFallbacksRef.current.size >= FALLBACK_MESSAGES.length) {
+            usedFallbacksRef.current.clear();
+        }
+        let idx: number;
+        do {
+            idx = Math.floor(Math.random() * FALLBACK_MESSAGES.length);
+        } while (usedFallbacksRef.current.has(idx));
+        usedFallbacksRef.current.add(idx);
+        return FALLBACK_MESSAGES[idx];
+    }, []);
+
+    const composingStartTimeRef = useRef<number>(0);
+    const pendingCompleteTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    /**
+     * Start the composing phase:
+     * - "Composing response..." for 3s max before fallbacks
+     * - Becomes preemptible after 2s (handled in complete())
+     * - Cycles fallback messages every 4.5s
+     */
+    const startComposingPhase = useCallback(() => {
+        setState(prev => ({ ...prev, message: 'Composing response...' }));
+        composingStartTimeRef.current = Date.now();
+
+        // After 3s of "Composing response...", start fallback cycling
+        const fallbackTimer = setTimeout(() => {
+            if (responseReady.current) return;
+
+            // Start cycling fallback messages every 4.5s
+            setState(prev => ({ ...prev, message: pickFallback() }));
+
+            composingIntervalRef.current = setInterval(() => {
+                if (responseReady.current) return;
+                setState(prev => ({ ...prev, message: pickFallback() }));
+            }, 4500);
+        }, 3000);
+
+        timersRef.current.push(fallbackTimer);
+    }, [pickFallback]);
+
+    /**
+     * Start the thinking process for a given mode.
+     * Schedules all fixed-duration stages, then enters composing phase.
+     */
+    const startThinking = useCallback((mode: ChatMode) => {
+        // Reset state
+        clearAllTimers();
+        responseReady.current = false;
+        usedFallbacksRef.current.clear();
+        composingStartTimeRef.current = 0;
+
+        const stages = MODE_STAGES[mode];
+        if (!stages || stages.length === 0) return;
+
+        // Show first stage immediately
         setState({
-            stage: 'searching',
-            progress: 10,
-            message: 'Searching knowledge sources...',
-            details: `Finding relevant information for: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}"`,
+            active: true,
+            message: stages[0].message,
+            complete: false,
         });
-    };
 
-    const updateSearching = (sources: SourceHit[]) => {
-        setState(prev => ({
-            ...prev,
-            stage: 'searching',
-            progress: 30,
-            message: `Found ${sources.filter(s => s.matched).length} matching sources`,
-            sourcesSearched: sources,
-        }));
-    };
+        // Schedule remaining stages
+        let accumulatedDelay = 0;
 
-    const startEvaluating = (numResults: number) => {
-        setState(prev => ({
-            ...prev,
-            stage: 'evaluating',
-            progress: 50,
-            message: 'Evaluating result quality...',
-            details: `Scoring ${numResults} results for relevance and authority`,
-        }));
-    };
+        for (let i = 0; i < stages.length; i++) {
+            if (i === 0) {
+                // Already shown
+                accumulatedDelay += stages[i].duration;
+                continue;
+            }
 
-    const updateCRAGVerdict = (verdict: ThinkingState['cragVerdict'], confidence: number) => {
-        setState(prev => ({
-            ...prev,
-            cragVerdict: verdict,
-            cragConfidence: confidence,
-            progress: 65,
-            details: verdict === 'RELEVANT'
-                ? 'High-quality sources found'
-                : verdict === 'AMBIGUOUS'
-                    ? 'Supplementing with additional sources...'
-                    : 'Limited information available',
-        }));
-    };
+            const stage = stages[i];
 
-    const startCorrecting = () => {
-        setState(prev => ({
-            ...prev,
-            stage: 'correcting',
-            progress: 75,
-            message: 'Verifying with external sources...',
-            details: 'Cross-referencing with trusted web sources',
-            webFallbackUsed: true,
-        }));
-    };
+            if (stage.duration === 0) {
+                // This is the composing phase — schedule it and enter special handling
+                const timer = setTimeout(() => {
+                    startComposingPhase();
+                }, accumulatedDelay);
+                timersRef.current.push(timer);
+                break;
+            }
 
-    const startGenerating = () => {
-        setState(prev => ({
-            ...prev,
-            stage: 'generating',
-            progress: 85,
-            message: 'Composing response...',
-            details: 'Synthesizing information into a clear answer',
-        }));
-    };
+            // Fixed-duration stage
+            const timer = setTimeout(() => {
+                setState(prev => ({ ...prev, message: stage.message }));
+            }, accumulatedDelay);
+            timersRef.current.push(timer);
 
-    const complete = () => {
-        setState(prev => ({
-            ...prev,
-            stage: 'complete',
-            progress: 100,
+            accumulatedDelay += stage.duration;
+        }
+    }, [clearAllTimers, startComposingPhase]);
+
+    /**
+     * Signal that the response has arrived.
+     * If we're past the 1s composing minimum, show immediately.
+     * Otherwise, wait until 1s is up, then complete.
+     */
+    const responseReceived = useCallback(() => {
+        responseReady.current = true;
+    }, []);
+
+    /**
+     * Show the "Complete" state and stop all timers.
+     */
+    const complete = useCallback(() => {
+        const now = Date.now();
+        const elapsed = now - composingStartTimeRef.current;
+
+        // Ensure "Composing response..." shows for at least 2s before becoming preemptible
+        if (composingStartTimeRef.current > 0 && elapsed < 2000) {
+            const remaining = 2000 - elapsed;
+            if (pendingCompleteTimerRef.current) clearTimeout(pendingCompleteTimerRef.current);
+            pendingCompleteTimerRef.current = setTimeout(() => {
+                clearAllTimers();
+                setState({
+                    active: true,
+                    message: 'Complete',
+                    complete: true,
+                });
+            }, remaining);
+            return;
+        }
+
+        clearAllTimers();
+        setState({
+            active: true,
             message: 'Complete',
-        }));
-    };
-
-    const reset = () => {
-        setState({
-            stage: 'idle',
-            progress: 0,
-            message: '',
+            complete: true,
         });
-    };
+    }, [clearAllTimers]);
+
+    /**
+     * Reset to idle.
+     */
+    const reset = useCallback(() => {
+        clearAllTimers();
+        responseReady.current = false;
+        usedFallbacksRef.current.clear();
+        composingStartTimeRef.current = 0;
+        setState({
+            active: false,
+            message: '',
+            complete: false,
+        });
+    }, [clearAllTimers]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => clearAllTimers();
+    }, [clearAllTimers]);
 
     return {
         state,
         startThinking,
-        updateSearching,
-        startEvaluating,
-        updateCRAGVerdict,
-        startCorrecting,
-        startGenerating,
+        responseReceived,
         complete,
         reset,
-        setState,
     };
 }
 
