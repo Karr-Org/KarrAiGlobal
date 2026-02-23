@@ -558,7 +558,7 @@ const Callout = memo(function Callout({ type, children }: CalloutProps) {
 // ============ CUSTOM COMPONENTS FOR REACT-MARKDOWN ============
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createCustomComponents(brandColor: string): Record<string, any> {
+function createCustomComponents(brandColor: string, citationMap?: Map<number, InlineCitationData>): Record<string, any> {
     return {
         // Headings with animations
         h1: ({ children }) => (
@@ -887,6 +887,62 @@ function createCustomComponents(brandColor: string): Record<string, any> {
                 )}
             </motion.figure>
         ),
+
+        // Inline citation badge rendered as a React component (replaces raw HTML injection)
+        sup: ({ children, node, ...props }: any) => {
+            const dataCite = node?.properties?.dataCite;
+            if (dataCite && citationMap) {
+                const idx = parseInt(dataCite, 10);
+                const cit = citationMap.get(idx);
+
+                // If citation data is missing (LLM cited an index not in resolved citations),
+                // render a plain neutral superscript instead of a misleading KB/web badge
+                if (!cit) {
+                    return (
+                        <sup className="inline-cite cite-neutral">
+                            <span className="cite-icon">{idx}</span>
+                        </sup>
+                    );
+                }
+
+                const title = cit.source?.title || `Source ${idx}`;
+                const excerpt = cit.source?.excerpt || '';
+                const type = cit.source?.type || 'web';
+                const isWeb = type === 'web' || type === 'live_web';
+                const typeLabel = isWeb ? '🌐 Web' : '📚 Knowledge Base';
+                const typeClass = isWeb ? 'cite-web' : 'cite-kb';
+                const url = cit.source?.url || '';
+
+                return (
+                    <span className="inline-cite-wrap">
+                        <sup className={`inline-cite ${typeClass}`}>
+                            <span className="cite-icon">{idx}</span>
+                        </sup>
+                        <span className="cite-tooltip">
+                            <span className="cite-tooltip-header">
+                                <span className={`cite-tooltip-badge ${typeClass}`}>{idx}</span>
+                                <span className="cite-tooltip-title">{title}</span>
+                            </span>
+                            {excerpt && (
+                                <span className="cite-tooltip-excerpt">
+                                    &ldquo;{excerpt}&hellip;&rdquo;
+                                </span>
+                            )}
+                            <span className="cite-tooltip-footer">
+                                <span className={`cite-tooltip-type ${typeClass}`}>{typeLabel}</span>
+                                {url && (
+                                    <a href={url} target="_blank" rel="noopener noreferrer" className="cite-tooltip-link">
+                                        ↗ Learn More
+                                    </a>
+                                )}
+                            </span>
+                        </span>
+                    </span>
+                );
+            }
+            // Default sup rendering (non-citation)
+            return <sup {...props}>{children}</sup>;
+        },
     };
 }
 
@@ -899,47 +955,60 @@ export function PremiumMarkdownRenderer({
     className = '',
     inlineCitations
 }: PremiumMarkdownRendererProps) {
-    // Memoize components to avoid recreating on every render
+    // Build citation map once for both components and processedContent
+    const citationSourceMap = useMemo(() => {
+        if (!inlineCitations || inlineCitations.length === 0) return undefined;
+        const map = new Map<number, InlineCitationData>();
+        for (const c of inlineCitations) {
+            map.set(c.source_index, c);
+        }
+        return map;
+    }, [inlineCitations]);
+
+    // Memoize components — now includes citation data for React-based tooltip rendering
     const components = useMemo(
-        () => createCustomComponents(brandColor),
-        [brandColor]
+        () => createCustomComponents(brandColor, citationSourceMap),
+        [brandColor, citationSourceMap]
     );
 
-    // Pre-process content: inject inline citation badges or convert [Source N] to sup
+    // Pre-process content: inject simple <sup> markers for citations
+    // The actual tooltip UI is rendered as a React component in the `sup` override above
     const processedContent = useMemo(() => {
-        if (inlineCitations && inlineCitations.length > 0) {
-            // Build a map of source_index → citation data for tooltip
-            const sourceMap = new Map<number, InlineCitationData>();
-            for (const c of inlineCitations) {
-                sourceMap.set(c.source_index, c);
-            }
+        // Step 1: Escape currency $ signs so remarkMath doesn't treat them as LaTeX
+        // Match $ followed by a digit (currency like $224.1) and replace with escaped version
+        let processed = content.replace(/\$(\d)/g, '\\$$1');
 
-            // Helper to escape HTML in user-supplied strings
-            const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        if (citationSourceMap && citationSourceMap.size > 0) {
+            // Step 2a: Handle multi-source citations like [Source 2, 5, 6] or [Source 2, Source 5]
+            processed = processed.replace(
+                /\s*\[Source\s+([\d,\s]+(?:Source\s+\d+[\s,]*)*)\]/gi,
+                (_, inner) => {
+                    // Extract all numbers from the inner text
+                    const nums = inner.match(/\d+/g) || [];
+                    return nums.map((num: string) => {
+                        const idx = parseInt(num, 10);
+                        const type = citationSourceMap.get(idx)?.source?.type || 'kb';
+                        const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : 'cite-kb';
+                        return `<sup data-cite="${idx}" class="${typeClass}">${idx}</sup>`;
+                    }).join('');
+                }
+            );
 
-            // Replace [Source N] and [N] markers with inline superscript citation badges + rich tooltip
-            return content.replace(
+            // Step 2b: Handle remaining single citations [Source N] or [N]
+            processed = processed.replace(
                 /\s*\[(?:Source\s+)?(\d+)\]/gi,
                 (_, num) => {
                     const idx = parseInt(num, 10);
-                    const cit = sourceMap.get(idx);
-                    const title = esc(cit?.source?.title || `Source ${idx}`);
-                    const excerpt = esc(cit?.source?.excerpt || '');
-                    const type = cit?.source?.type || 'kb';
-                    const typeLabel = type === 'web' || type === 'live_web' ? '🌐 Web' : '📚 Knowledge Base';
-                    const typeClass = type === 'web' || type === 'live_web' ? 'cite-web' : 'cite-kb';
-                    const url = cit?.source?.url || '';
-
-                    const linkHtml = url
-                        ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="cite-tooltip-link">↗ Open source</a>`
-                        : '';
-
-                    return `<span class="inline-cite-wrap"><sup class="inline-cite ${typeClass}"><span class="cite-icon">${idx}</span></sup><span class="cite-tooltip"><span class="cite-tooltip-header"><span class="cite-tooltip-badge ${typeClass}">${idx}</span><span class="cite-tooltip-title">${title}</span></span>${excerpt ? `<span class="cite-tooltip-excerpt">&ldquo;${excerpt}&hellip;&rdquo;</span>` : ''}<span class="cite-tooltip-footer"><span class="cite-tooltip-type ${typeClass}">${typeLabel}</span>${linkHtml}</span></span></span>`;
+                    const type = citationSourceMap.get(idx)?.source?.type || 'kb';
+                    const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : 'cite-kb';
+                    return `<sup data-cite="${idx}" class="${typeClass}">${idx}</sup>`;
                 }
             );
+
+            return processed;
         }
-        // Fallback: convert [Source N] to superscript-style citations
-        return content.replace(
+        // Fallback: convert [Source N] to simple superscript (no citation data available)
+        return processed.replace(
             /\[Source\s*([\d,\s]+)\]/gi,
             (_, nums) => {
                 const sources = nums.split(',').map((n: string) => n.trim());
@@ -948,7 +1017,7 @@ export function PremiumMarkdownRenderer({
                     .join('');
             }
         );
-    }, [content, inlineCitations]);
+    }, [content, citationSourceMap]);
 
     return (
         <motion.div
@@ -974,14 +1043,12 @@ interface AIMessageProps {
     content: string;
     brandColor?: string;
     confidence?: number;
-    kbWasEmpty?: boolean;
     inlineCitations?: InlineCitationData[];
 }
 
 export function AIMessage({
     content,
     brandColor = '#DA7B4D',
-    kbWasEmpty,
     inlineCitations
 }: AIMessageProps) {
     return (
@@ -990,14 +1057,6 @@ export function AIMessage({
             animate={{ opacity: 1, y: 0 }}
             className="bg-white border border-sand-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow"
         >
-            {/* KB Empty Notice */}
-            {kbWasEmpty && (
-                <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-700">
-                    <span className="text-amber-500">⚠️</span>
-                    <span>Couldn&apos;t find in knowledge base. Showing results from <strong>trusted websites</strong>.</span>
-                </div>
-            )}
-
             {/* Main Content — inline citations render as superscript badges */}
             <div className="px-5 py-4">
                 <PremiumMarkdownRenderer content={content} brandColor={brandColor} inlineCitations={inlineCitations} />

@@ -20,6 +20,7 @@ import {
     buildIdentityProtectionBlock,
     buildStrictModePrompt,
     buildExtendedModePrompt,
+    buildWebModePrompt,
     STRICT_MODE_PROMPT,
     EXTENDED_MODE_PROMPT,
     IDENTITY_PROTECTION_BLOCK,
@@ -188,6 +189,7 @@ export async function POST(request: NextRequest) {
         const conversationHistoryRaw = formData.get('conversationHistory') as string;
         const enableWebSearch = formData.get('enableWebSearch') === 'true';
         const enableExtendedKnowledge = formData.get('enableExtendedKnowledge') === 'true';
+        const isWebOnly = enableWebSearch && !enableExtendedKnowledge;
 
         // Parse conversation history for context-aware responses
         let conversationHistory: { role: string; content: string }[] = [];
@@ -210,9 +212,9 @@ export async function POST(request: NextRequest) {
         const sanitizedQuery = sanitizeUserInput(query);
         const isConversational = isConversationalQuery(sanitizedQuery);
 
-        // Skip embedding for conversational queries (saves API call)
+        // Skip embedding for conversational queries and web-only mode (saves API call)
         let queryEmbedding: number[] = [];
-        if (!isConversational) {
+        if (!isConversational && !isWebOnly) {
             queryEmbedding = await getEmbedding(sanitizedQuery);
             if (queryEmbedding.length === 0) {
                 return NextResponse.json(
@@ -345,7 +347,9 @@ export async function POST(request: NextRequest) {
         const allChunks: ContextChunk[] = [];
 
         // Skip KB searches entirely for conversational queries (embedding is empty anyway)
-        if (!isConversational) {
+        // Also skip KB searches in web-only mode — the user explicitly chose web search,
+        // so we should not retrieve or cite KB documents at all.
+        if (!isConversational && !isWebOnly) {
             // ============================================
             // 1. GLOBAL PRODUCT KNOWLEDGE
             // ============================================
@@ -415,7 +419,9 @@ export async function POST(request: NextRequest) {
         // citation tool — no pre-search needed.
         // ============================================
         let webSearchUsed = false;
-        let kbWasEmpty = allChunks.length === 0;
+        // In web-only mode, kbWasEmpty is irrelevant — the user chose web search,
+        // so we should NOT show the "couldn't find in KB" banner.
+        let kbWasEmpty = isWebOnly ? false : allChunks.length === 0;
 
         // ============================================
         // 2.6. STRICT MODE GUARD — refuse off-topic queries
@@ -619,15 +625,19 @@ export async function POST(request: NextRequest) {
         }
 
         // Step 3: Select system prompt based on mode
-        // Web mode and Full Power need the EXTENDED prompt so the LLM is allowed
-        // to call the web_search tool. STRICT prompt says "only use KB context",
-        // which prevents the LLM from searching the internet.
+        // Each mode gets a tailored prompt:
+        // - Strict: KB only, refuse off-topic
+        // - Extended: KB first, general knowledge allowed
+        // - Web: Pure web search, no KB mention at all
+        // - Full Power: KB + web + general knowledge
         const agentName = persona?.agent_name || null;
         const orgName = persona?.organization_name || null;
         const useExtendedPrompt = enableExtendedKnowledge || enableWebSearch;
-        const basePrompt = useExtendedPrompt
-            ? buildExtendedModePrompt(agentName, orgName)
-            : buildStrictModePrompt(agentName, orgName);
+        const basePrompt = isWebOnly
+            ? buildWebModePrompt(agentName, orgName)
+            : useExtendedPrompt
+                ? buildExtendedModePrompt(agentName, orgName)
+                : buildStrictModePrompt(agentName, orgName);
         // If a task system prompt is detected, prepend identity protection so
         // anti-jailbreak, prompt protection, and persona identity are never lost
         let systemPrompt = taskSystemPrompt
@@ -688,11 +698,32 @@ export async function POST(request: NextRequest) {
         }
 
         // ============================================
+        // WEB MODE FINAL OVERRIDE
+        // Injected LAST so it takes highest priority.
+        // Persona/identity blocks may include KB-only language or
+        // instruct the LLM to "ask the user" — this override ensures
+        // the LLM searches the web immediately without asking.
+        // ============================================
+        if (isWebOnly) {
+            systemPrompt += `\n\n## ⚡ WEB SEARCH MODE — CRITICAL OVERRIDE (HIGHEST PRIORITY AFTER IDENTITY)
+- You are in WEB SEARCH MODE. The user has explicitly enabled web search.
+- DO NOT introduce yourself. DO NOT say "How can I help you?" — the user has already asked a question.
+- DO NOT ask for confirmation or say "Would you like me to proceed?" — just search immediately.
+- DO NOT mention a knowledge base. You do not have a knowledge base in this mode.
+- DO NOT refuse to search. If the user asks a question, use the web_search tool IMMEDIATELY.
+- Answer the question directly using web search results. Cite your sources.
+- This overrides any other instruction that conflicts with searching the web.`;
+        }
+
+        // ============================================
         // INJECT KB DOMAIN AWARENESS INTO SYSTEM PROMPT
         // Tells the LLM what topics the KB covers so it doesn't
         // default to "Based on general knowledge" for in-domain queries
         // ============================================
-        if (kbTitles.length > 0) {
+        // Skip KB domain awareness in web-only mode — the web prompt
+        // explicitly says "no knowledge base", so injecting KB references
+        // would contradict it and confuse the LLM.
+        if (kbTitles.length > 0 && !isWebOnly) {
             let kbAwarenessBlock = '\n\n## KB DOMAIN AWARENESS\n';
             if (kbTopicSummary) {
                 kbAwarenessBlock += `Your knowledge base covers: ${kbTopicSummary}\n`;
@@ -709,7 +740,13 @@ export async function POST(request: NextRequest) {
             conversationHistory as ConversationMessage[],
             effectiveQuery,
             systemPrompt,
-            context || ''  // Empty context triggers "no information found" in strict mode
+            context || '',  // Empty context triggers mode-specific behavior
+            // Pass the active mode so buildMultiTurnMessages uses the right
+            // context section (strict refuses, web searches, extended allows)
+            isWebOnly ? 'web'
+                : enableExtendedKnowledge && enableWebSearch ? 'full_power'
+                    : enableExtendedKnowledge ? 'extended'
+                        : 'strict'
         );
 
         // CRITICAL DEBUG: Log what's being sent to AI

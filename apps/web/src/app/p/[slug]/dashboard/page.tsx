@@ -58,7 +58,8 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import dynamic from 'next/dynamic';
 import { ProactiveInsights, WelcomeMessage } from '@/components/cognitive/ProactiveInsights';
-import { ThinkingProcess, useThinkingState, ThinkingState } from '@/components/chat/ThinkingProcess';
+import { ThinkingProcess, useThinkingState } from '@/components/chat/ThinkingProcess';
+import type { ChatMode } from '@/components/chat/ThinkingProcess';
 import { AIMessage } from '@/components/chat/PremiumMarkdownRenderer';
 import type { InlineCitationData } from '@/components/chat/PremiumMarkdownRenderer';
 import { useCognitiveSession } from '@/hooks/useCognitiveSession';
@@ -430,7 +431,10 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
                 setMessages(data.messages.map((m: any) => ({
                     role: m.role,
                     content: m.content,
-
+                    // Restore inline citations from persisted sources
+                    inlineCitations: m.sources && Array.isArray(m.sources) && m.sources.length > 0
+                        ? m.sources as InlineCitationData[]
+                        : undefined,
                 })));
                 setActiveTab('chat');
 
@@ -449,14 +453,19 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
 
     // Save a message to the current session
-    const saveCognitiveMessage = async (role: 'user' | 'assistant', content: string, sources?: any[]) => {
+    const saveCognitiveMessage = async (role: 'user' | 'assistant', content: string, inlineCitations?: InlineCitationData[]) => {
         if (!currentSessionId) return;
 
         try {
             await fetch(`/api/cognitive/sessions/${currentSessionId}/messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role, content, sources }),
+                body: JSON.stringify({
+                    role,
+                    content,
+                    // Persist inline citations in the sources JSONB column
+                    sources: inlineCitations && inlineCitations.length > 0 ? inlineCitations : undefined,
+                }),
             });
         } catch (error) {
             console.error('Failed to save message:', error);
@@ -722,8 +731,14 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
             saveCognitiveMessage('user', userMessage);
         }
 
-        // OmniForge Phase 3: Start the Thinking Process UI
-        thinkingHook.startThinking(userMessage);
+        // Determine the active chat mode for loading UI
+        const chatMode = enableWebSearch && enableExtendedKnowledge ? 'full_power'
+            : enableWebSearch ? 'web'
+                : enableExtendedKnowledge ? 'extended'
+                    : 'strict';
+
+        // Start mode-aware thinking process
+        thinkingHook.startThinking(chatMode);
 
         try {
             const formData = new FormData();
@@ -759,44 +774,17 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
                 formData.append('enableExtendedKnowledge', 'true');
             }
 
-            // Stage 1: Searching (simulated timing for smoother UX)
-            const searchingSources = [
-                { name: 'Knowledge Base', type: 'internal', trustLevel: 100, matched: true },
-                { name: 'Your Documents', type: 'internal', trustLevel: 100, matched: documents.length > 0 },
-            ];
-            if (enableWebSearch) {
-                searchingSources.push({ name: 'Web Search', type: 'external', trustLevel: 80, matched: true });
-            }
-            thinkingHook.updateSearching(searchingSources);
-
             const res = await fetch('/api/chat/user', {
                 method: 'POST',
                 body: formData,
             });
 
-            // Stage 2: Evaluating
-            thinkingHook.startEvaluating(5);
-
             const data = await res.json();
 
             if (!res.ok) throw new Error(data.error || 'Request failed');
 
-            // Update CRAG verdict if available
-            if (data.reasoning) {
-                thinkingHook.updateCRAGVerdict(
-                    data.reasoning.verdict || 'RELEVANT',
-                    data.reasoning.confidence || 0.85
-                );
-
-                if (data.reasoning.webSupplementUsed) {
-                    thinkingHook.startCorrecting();
-                    await new Promise(r => setTimeout(r, 300)); // Brief delay for UX
-                }
-            }
-
-            // Stage 3: Generating
-            thinkingHook.startGenerating();
-            await new Promise(r => setTimeout(r, 200)); // Brief delay for UX
+            // Signal that the response has arrived (preemptible after composing minimum)
+            thinkingHook.responseReceived();
 
             const responseText = data.response || 'I apologize, but I could not generate a response. Please try again.';
 
@@ -833,7 +821,7 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
 
             // 🧠 COGNITIVE: Save assistant response to session
             if (sessionId) {
-                saveCognitiveMessage('assistant', responseText);
+                saveCognitiveMessage('assistant', responseText, inlineCitations.length > 0 ? inlineCitations : undefined);
 
                 // After 3+ messages, trigger title generation
                 const totalMessages = messages.length + 2; // +2 for the new user & assistant messages
@@ -1641,7 +1629,6 @@ Generate ONLY the Mermaid diagram code (starting with "graph TD" or "flowchart T
                                                         <AIMessage
                                                             content={msg.content}
                                                             brandColor={brandColor}
-                                                            kbWasEmpty={msg.kbWasEmpty}
                                                             inlineCitations={msg.inlineCitations}
                                                         />
                                                     </div>
