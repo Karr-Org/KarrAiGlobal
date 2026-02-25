@@ -126,6 +126,8 @@ export async function generateWithCitationTool(
         temperature?: number;
         maxOutputTokens?: number;
         enableWebSearch?: boolean;
+        /** System instruction passed via Gemini's native field (not injected into user messages) */
+        systemInstruction?: string;
     }
 ): Promise<CitationToolResponse> {
     if (!GOOGLE_AI_API_KEY) {
@@ -158,24 +160,33 @@ export async function generateWithCitationTool(
         // Gemini may call web_search one or more times before calling respond_with_citations.
         // We loop until we get the final citation response or hit the max search calls.
         while (true) {
+            const requestBody: Record<string, unknown> = {
+                contents: conversationContents,
+                tools: [{ functionDeclarations }],
+                toolConfig: {
+                    functionCallingConfig: {
+                        mode: 'AUTO',
+                    },
+                },
+                generationConfig: {
+                    temperature: options?.temperature ?? 0.3,
+                    maxOutputTokens: options?.maxOutputTokens ?? 4096,
+                    topP: 0.95,
+                    topK: 40,
+                },
+            };
+
+            // Use Gemini's native system_instruction field when provided
+            if (options?.systemInstruction) {
+                requestBody.system_instruction = {
+                    parts: [{ text: options.systemInstruction }],
+                };
+            }
+
             const response = await fetch(`${GEMINI_ENDPOINT}?key=${GOOGLE_AI_API_KEY}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: conversationContents,
-                    tools: [{ functionDeclarations }],
-                    toolConfig: {
-                        functionCallingConfig: {
-                            mode: 'AUTO',
-                        },
-                    },
-                    generationConfig: {
-                        temperature: options?.temperature ?? 0.3,
-                        maxOutputTokens: options?.maxOutputTokens ?? 4096,
-                        topP: 0.95,
-                        topK: 40,
-                    },
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             if (!response.ok) {

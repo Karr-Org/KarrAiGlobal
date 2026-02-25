@@ -50,28 +50,41 @@ export async function generateContent(prompt: string): Promise<string> {
 }
 
 /**
- * Generate content with multi-turn conversation
+ * Generate content with multi-turn conversation.
+ * 
+ * Accepts an optional systemInstruction which is passed via Gemini's
+ * native `system_instruction` field (not injected into user messages).
  */
 export async function generateContentMultiTurn(
-    messages: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>
+    messages: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>,
+    systemInstruction?: string
 ): Promise<string> {
     if (!GOOGLE_AI_API_KEY) {
         throw new Error('GOOGLE_AI_API_KEY is not configured');
     }
 
     try {
+        const requestBody: Record<string, unknown> = {
+            contents: messages,
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 4096,
+            },
+        };
+
+        // Use Gemini's native system_instruction field when provided
+        if (systemInstruction) {
+            requestBody.system_instruction = {
+                parts: [{ text: systemInstruction }],
+            };
+        }
+
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: messages,
-                    generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 4096,
-                    },
-                }),
+                body: JSON.stringify(requestBody),
             }
         );
 

@@ -121,24 +121,35 @@ async function generateContent(prompt: string): Promise<string> {
  * This is what makes us match ChatGPT/Claude quality
  */
 async function generateContentMultiTurn(
-    messages: { role: string; parts: { text: string }[] }[]
+    messages: { role: string; parts: { text: string }[] }[],
+    systemInstruction?: string
 ): Promise<string> {
     try {
-        console.log('[Multi-Turn] Calling Gemini with', messages.length, 'turns');
+        console.log('[Multi-Turn] Calling Gemini with', messages.length, 'turns', systemInstruction ? '+ system_instruction' : '(no system_instruction)');
+
+        const requestBody: Record<string, unknown> = {
+            contents: messages,
+            generationConfig: {
+                temperature: 0.7,
+                topP: 0.9,
+                topK: 40,
+                maxOutputTokens: 2048,
+            },
+        };
+
+        // Use Gemini's native system_instruction field when provided
+        if (systemInstruction) {
+            requestBody.system_instruction = {
+                parts: [{ text: systemInstruction }],
+            };
+        }
+
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: messages,
-                    generationConfig: {
-                        temperature: 0.7,
-                        topP: 0.9,
-                        topK: 40,
-                        maxOutputTokens: 2048,
-                    },
-                }),
+                body: JSON.stringify(requestBody),
             }
         );
 
@@ -638,11 +649,13 @@ export async function POST(request: NextRequest) {
             : useExtendedPrompt
                 ? buildExtendedModePrompt(agentName, orgName)
                 : buildStrictModePrompt(agentName, orgName);
-        // If a task system prompt is detected, prepend identity protection so
-        // anti-jailbreak, prompt protection, and persona identity are never lost
-        let systemPrompt = taskSystemPrompt
-            ? buildIdentityProtectionBlock(agentName, orgName) + '\n\n' + taskSystemPrompt
-            : basePrompt;
+        // Start with the user-selected mode prompt (strict/extended/web).
+        // If a task system prompt is detected, APPEND it — never replace the
+        // base mode prompt, which contains critical web search / KB instructions.
+        let systemPrompt = basePrompt;
+        if (taskSystemPrompt) {
+            systemPrompt += '\n\n## TASK-SPECIFIC INSTRUCTIONS\n' + taskSystemPrompt;
+        }
 
         const modeLabel = enableExtendedKnowledge && enableWebSearch ? 'FULL POWER'
             : enableWebSearch ? 'WEB SEARCH'
@@ -736,7 +749,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Step 4: Build multi-turn messages for native Gemini format
-        const multiTurnMessages = buildMultiTurnMessages(
+        // buildMultiTurnMessages returns { messages, systemInstruction } so the
+        // system prompt can be passed via Gemini's native system_instruction field
+        // instead of being injected into the first user message.
+        const { messages: multiTurnMessages, systemInstruction } = buildMultiTurnMessages(
             conversationHistory as ConversationMessage[],
             effectiveQuery,
             systemPrompt,
@@ -785,6 +801,7 @@ export async function POST(request: NextRequest) {
                         temperature: 0.7,
                         maxOutputTokens: 2048,
                         enableWebSearch, // Enables web_search tool in Web/Full Power modes
+                        systemInstruction, // Native Gemini system_instruction field
                     }
                 );
                 response = citationResult.answer;
@@ -798,7 +815,7 @@ export async function POST(request: NextRequest) {
             } catch (citationError) {
                 // Fallback: use standard generation if citation tool fails
                 console.error('[UserChat] Citation tool failed, falling back:', citationError);
-                response = await generateContentMultiTurn(multiTurnMessages);
+                response = await generateContentMultiTurn(multiTurnMessages, systemInstruction);
 
                 // Robust fallback: parse [N] markers from the fallback text
                 // This ensures citation icons appear even when function calling errors out
@@ -817,7 +834,7 @@ export async function POST(request: NextRequest) {
             }
         } else {
             // No sources and no web search — conversational query, use standard generation
-            response = await generateContentMultiTurn(multiTurnMessages);
+            response = await generateContentMultiTurn(multiTurnMessages, systemInstruction);
         }
 
         // ============================================

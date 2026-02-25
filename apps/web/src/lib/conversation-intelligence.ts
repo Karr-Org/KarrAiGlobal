@@ -180,7 +180,23 @@ export function rewriteQuery(
 }
 
 /**
- * Build the native multi-turn message format for Gemini API
+ * Return type for buildMultiTurnMessages — separates system instruction
+ * from conversation messages so callers can use Gemini's native
+ * `system_instruction` field instead of injecting it into user messages.
+ */
+export interface MultiTurnResult {
+    /** Pure user/model conversation turns (no system prompt injected) */
+    messages: { role: string; parts: { text: string }[] }[];
+    /** Combined system prompt + KB context, ready for Gemini's system_instruction field */
+    systemInstruction: string;
+}
+
+/**
+ * Build the native multi-turn message format for Gemini API.
+ * 
+ * Returns the system instruction SEPARATELY so it can be passed via
+ * Gemini's native `system_instruction` field rather than being injected
+ * into the first user message.
  */
 export function buildMultiTurnMessages(
     conversationHistory: ConversationMessage[],
@@ -188,44 +204,36 @@ export function buildMultiTurnMessages(
     systemPrompt: string,
     knowledgeContext: string,
     mode: 'strict' | 'extended' | 'web' | 'full_power' = 'strict'
-): { role: string; parts: { text: string }[] }[] {
+): MultiTurnResult {
     const messages: { role: string; parts: { text: string }[] }[] = [];
 
-    // First, add a "user" message with the system prompt and context
-    // (Gemini doesn't have a separate system role, so we prepend it)
+    // Build the context section based on mode
     let contextSection: string;
 
     if (knowledgeContext) {
         contextSection = `## KNOWLEDGE BASE CONTEXT:\n${knowledgeContext}`;
     } else if (mode === 'strict') {
-        // Strict mode: refuse when KB is empty
         contextSection = `## KNOWLEDGE BASE CONTEXT:\n[EMPTY - No relevant information was found in the knowledge base for this query. You MUST say "I don't have this specific information in my knowledge base." Do NOT use your general knowledge.]`;
     } else if (mode === 'web') {
-        // Web mode: no KB context expected, use web search
         contextSection = `## CONTEXT:\n[No knowledge base context in web search mode. Use the web_search tool to find information for the user's query.]`;
     } else {
-        // Extended / Full Power: KB empty but can use other sources
         contextSection = `## KNOWLEDGE BASE CONTEXT:\n[No matching documents found in the knowledge base. You may use your general knowledge or web search tools to answer.]`;
     }
 
-    const systemWithContext = `${systemPrompt}
+    // System instruction = system prompt + context + conversation reminder
+    const systemInstruction = `${systemPrompt}
 
 ${contextSection}
 
 Remember: You are having a conversation. Use context from previous messages to understand follow-up questions.`;
 
-    // Add conversation history in alternating format
-    let isFirstMessage = true;
-    for (const msg of conversationHistory.slice(-8)) { // Last 8 messages for context window
+    // Add conversation history as pure user/model turns (no system prompt injection)
+    for (const msg of conversationHistory.slice(-8)) {
         if (msg.role === 'user') {
-            const text = isFirstMessage
-                ? `${systemWithContext}\n\nUser: ${msg.content}`
-                : msg.content;
             messages.push({
                 role: 'user',
-                parts: [{ text }]
+                parts: [{ text: msg.content }]
             });
-            isFirstMessage = false;
         } else {
             messages.push({
                 role: 'model',
@@ -236,16 +244,13 @@ Remember: You are having a conversation. Use context from previous messages to u
 
     // Add current query
     if (messages.length === 0 || messages[messages.length - 1].role === 'model') {
-        const text = isFirstMessage
-            ? `${systemWithContext}\n\nUser: ${currentQuery}`
-            : currentQuery;
         messages.push({
             role: 'user',
-            parts: [{ text }]
+            parts: [{ text: currentQuery }]
         });
     }
 
-    return messages;
+    return { messages, systemInstruction };
 }
 
 /**
