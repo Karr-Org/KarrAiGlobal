@@ -20,6 +20,7 @@ import {
     Brain,
     Eye,
     RefreshCw,
+    Trash2,
 } from 'lucide-react';
 
 interface PersonaData {
@@ -52,6 +53,17 @@ const DEFAULT_PERSONA: PersonaData = {
     website_last_crawled_at: null,
 };
 
+interface TrustedSource {
+    id: string;
+    domain: string;
+    display_name: string;
+    is_active: boolean;
+    last_crawled_at: string | null;
+    last_crawl_status: string | null;
+    total_pages_crawled: number;
+    crawl_frequency: string;
+}
+
 const TONE_OPTIONS = [
     { value: 'professional', label: 'Professional', desc: 'Clear, authoritative, business-appropriate', emoji: '👔' },
     { value: 'friendly', label: 'Friendly', desc: 'Warm, approachable, conversational', emoji: '😊' },
@@ -75,6 +87,13 @@ export default function PersonaBuilderPage() {
     const [testResponse, setTestResponse] = useState('');
     const [testLoading, setTestLoading] = useState(false);
     const [crawling, setCrawling] = useState(false);
+
+    // Multi-domain trusted sources state
+    const [trustedSources, setTrustedSources] = useState<TrustedSource[]>([]);
+    const [sourcesLoading, setSourcesLoading] = useState(true);
+    const [newDomain, setNewDomain] = useState('');
+    const [addingDomain, setAddingDomain] = useState(false);
+    const [crawlingSourceId, setCrawlingSourceId] = useState<string | null>(null);
 
     useEffect(() => {
         loadPersona();
@@ -105,10 +124,83 @@ export default function PersonaBuilderPage() {
                     blocked_topics: data.persona.blocked_topics || [],
                 });
             }
+
+            // Load trusted web sources
+            await loadTrustedSources();
         } catch (err) {
             console.error('Failed to load persona:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadTrustedSources = async () => {
+        setSourcesLoading(true);
+        try {
+            const res = await fetch(`/api/okse/sources?product_id=${id}`);
+            const data = await res.json();
+            setTrustedSources(data.sources || []);
+        } catch (err) {
+            console.error('Failed to load trusted sources:', err);
+        } finally {
+            setSourcesLoading(false);
+        }
+    };
+
+    const handleAddDomain = async () => {
+        const domain = newDomain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+        if (!domain) return;
+        setAddingDomain(true);
+        try {
+            const res = await fetch('/api/okse/sources', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: id, domain }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            setNewDomain('');
+            await loadTrustedSources();
+
+            // Trigger crawl for the new source
+            if (data.source?.id) {
+                handleCrawlSource(data.source.id);
+            }
+        } catch (err: any) {
+            alert(err.message || 'Failed to add domain');
+        } finally {
+            setAddingDomain(false);
+        }
+    };
+
+    const handleDeleteSource = async (sourceId: string, domain: string) => {
+        if (!confirm(`Remove ${domain}? All cached data for this domain will be deleted.`)) return;
+        try {
+            await fetch(`/api/okse/sources?id=${sourceId}`, { method: 'DELETE' });
+            setTrustedSources(prev => prev.filter(s => s.id !== sourceId));
+        } catch (err) {
+            console.error('Failed to delete source:', err);
+        }
+    };
+
+    const handleCrawlSource = async (sourceId: string) => {
+        setCrawlingSourceId(sourceId);
+        try {
+            const res = await fetch('/api/okse/crawler', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: sourceId }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            // Reload sources to get updated status
+            await loadTrustedSources();
+        } catch (err) {
+            console.error('Failed to trigger crawl:', err);
+        } finally {
+            setCrawlingSourceId(null);
         }
     };
 
@@ -510,66 +602,106 @@ export default function PersonaBuilderPage() {
                     <h2 className="text-[15px] font-semibold text-[#2d2d2d]">Website Learning</h2>
                 </div>
                 <p className="text-[13px] text-[#8b8b8b] mb-4">
-                    Give your agent your organization&apos;s website. It will learn about your org — team, services,
-                    pricing, contact info — and use this as context in conversations.
+                    Add your organization&apos;s websites. Your agent will crawl and learn from them &mdash;
+                    team info, services, pricing, etc.
                 </p>
 
-                <div className="flex gap-2">
+                {/* Add Domain Input */}
+                <div className="flex gap-2 mb-4">
                     <div className="flex flex-1">
                         <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-[#e8e4df] bg-[#f4f1ed] text-[#8b8b8b] text-[13px]">
                             https://
                         </span>
                         <input
                             type="text"
-                            value={persona.website_url}
-                            onChange={e => setPersona(p => ({ ...p, website_url: e.target.value }))}
+                            value={newDomain}
+                            onChange={e => setNewDomain(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleAddDomain()}
                             className="flex-1 px-3 py-2.5 rounded-r-lg border border-[#e8e4df] focus:border-[#c4715b] focus:outline-none text-sm"
                             placeholder="yourdomain.com"
                         />
                     </div>
+                    <button
+                        onClick={handleAddDomain}
+                        disabled={addingDomain || !newDomain.trim()}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-white text-[13px] font-medium transition-all disabled:opacity-50"
+                        style={{ backgroundColor: productColor }}
+                    >
+                        {addingDomain ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Add
+                    </button>
                 </div>
 
-                {persona.website_url && persona.website_url.trim() && (
-                    <div className="mt-3 p-3 rounded-lg bg-[#f4f1ed] flex items-center justify-between">
-                        <div className="text-[13px]">
-                            {persona.website_crawl_status === 'completed' && (
-                                <span className="text-green-700">
-                                    ✅ {persona.website_pages_indexed} pages indexed
-                                    {persona.website_last_crawled_at && (
-                                        <span className="text-[#8b8b8b] ml-2">
-                                            · Last crawled {new Date(persona.website_last_crawled_at).toLocaleDateString()}
-                                        </span>
-                                    )}
-                                </span>
-                            )}
-                            {persona.website_crawl_status === 'crawling' && (
-                                <span className="text-amber-700 flex items-center gap-2">
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    Crawling in progress...
-                                </span>
-                            )}
-                            {persona.website_crawl_status === 'error' && (
-                                <span className="text-red-700">❌ Crawl failed. Check the URL and try again.</span>
-                            )}
-                            {(!persona.website_crawl_status || persona.website_crawl_status === 'none') && (
-                                <span className="text-[#8b8b8b]">
-                                    🌐 Ready to crawl — save persona or click Crawl Now
-                                </span>
-                            )}
-                        </div>
-                        <button
-                            onClick={handleRecrawl}
-                            disabled={crawling}
-                            className="text-[12px] text-[#c4715b] hover:text-[#a85a47] font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <RefreshCw className={`w-3 h-3 ${crawling ? 'animate-spin' : ''}`} />
-                            {crawling ? 'Crawling...' : persona.website_crawl_status === 'completed' ? 'Re-crawl' : 'Crawl Now'}
-                        </button>
+                {/* Domain List */}
+                {sourcesLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                        <Loader2 className="w-5 h-5 animate-spin text-[#c4715b]" />
+                    </div>
+                ) : trustedSources.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#e8e4df] p-6 text-center">
+                        <Globe className="w-6 h-6 mx-auto text-[#c0bbb5] mb-2" />
+                        <p className="text-[13px] text-[#8b8b8b]">
+                            No websites added yet. Add a domain above to get started.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {trustedSources.map(source => (
+                            <div
+                                key={source.id}
+                                className="flex items-center justify-between rounded-lg border border-[#e8e4df] bg-[#faf9f7] px-4 py-3"
+                            >
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <Globe className="w-4 h-4 text-[#8b8b8b] flex-shrink-0" />
+                                    <div className="min-w-0">
+                                        <div className="text-[13px] font-medium text-[#2d2d2d] truncate">{source.domain}</div>
+                                        <div className="flex items-center gap-2 text-[11px] text-[#8b8b8b]">
+                                            {source.last_crawl_status === 'success' || source.total_pages_crawled > 0 ? (
+                                                <span className="text-green-700">
+                                                    ✅ {source.total_pages_crawled} pages
+                                                    {source.last_crawled_at && (
+                                                        <span className="text-[#b5b0a9] ml-1">
+                                                            · {new Date(source.last_crawled_at).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            ) : source.last_crawl_status === 'error' ? (
+                                                <span className="text-red-600">❌ Crawl failed</span>
+                                            ) : crawlingSourceId === source.id ? (
+                                                <span className="text-amber-700 flex items-center gap-1">
+                                                    <Loader2 className="w-3 h-3 animate-spin" /> Crawling...
+                                                </span>
+                                            ) : (
+                                                <span className="text-[#b5b0a9]">Ready to crawl</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
+                                    <button
+                                        onClick={() => handleCrawlSource(source.id)}
+                                        disabled={crawlingSourceId === source.id}
+                                        className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-[#8b8b8b] hover:text-[#2d2d2d] disabled:opacity-50"
+                                        title={source.total_pages_crawled > 0 ? 'Re-crawl' : 'Crawl Now'}
+                                    >
+                                        <RefreshCw className={`w-3.5 h-3.5 ${crawlingSourceId === source.id ? 'animate-spin' : ''}`} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteSource(source.id, source.domain)}
+                                        className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                                        title="Remove domain"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                <p className="text-[11px] text-[#b5b0a9] mt-2">
-                    💡 This is different from your Knowledge Base. The website gives your agent
+                <p className="text-[11px] text-[#b5b0a9] mt-3">
+                    💡 This is different from your Knowledge Base. These websites give your agent
                     organizational context (who you are, what you do), while the KB provides deep domain expertise.
                 </p>
             </div>
