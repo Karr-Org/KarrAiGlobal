@@ -247,6 +247,10 @@
   background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
 
+.premium-markdown .inline-cite.cite-api .cite-icon {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+
 .premium-markdown .inline-cite.cite-neutral .cite-icon {
   background: linear-gradient(135deg, #9ca3af, #6b7280);
 }
@@ -336,6 +340,10 @@
   background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
 
+.premium-markdown .cite-tooltip-badge.cite-api {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+
 .premium-markdown .cite-tooltip-title {
   font-size: 0.8rem;
   font-weight: 600;
@@ -391,6 +399,11 @@
 .premium-markdown .cite-tooltip-type.cite-web {
   background: #eff6ff;
   color: #2563eb;
+}
+
+.premium-markdown .cite-tooltip-type.cite-api {
+  background: #f5f3ff;
+  color: #7c3aed;
 }
 
 .premium-markdown .cite-tooltip-link {

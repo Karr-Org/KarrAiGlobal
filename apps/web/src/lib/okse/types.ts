@@ -167,7 +167,7 @@ export interface DraftVerification {
 // KNOWLEDGE FUSION & CITATIONS
 // ============================================================================
 
-export type SourceType = 'kb' | 'web' | 'user_kb' | 'live_web';
+export type SourceType = 'kb' | 'web' | 'user_kb' | 'live_web' | 'api';
 
 export interface CitationSource {
     id: string;

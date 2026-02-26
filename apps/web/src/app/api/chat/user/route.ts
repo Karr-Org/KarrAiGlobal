@@ -268,6 +268,24 @@ export async function POST(request: NextRequest) {
         }
 
         // ============================================
+        // FETCH CUSTOM API TOOLS
+        // ============================================
+        let customTools: any[] = [];
+        try {
+            const { data: toolsData } = await supabase
+                .from('product_api_tools')
+                .select('*')
+                .eq('product_id', productId)
+                .eq('is_active', true);
+            customTools = toolsData || [];
+            if (customTools.length > 0) {
+                console.log('[UserChat] Custom API tools loaded:', customTools.map((t: any) => t.tool_name).join(', '));
+            }
+        } catch (e) {
+            console.warn('[UserChat] Failed to fetch custom tools:', e);
+        }
+
+        // ============================================
         // FETCH KB DOCUMENT TITLES + TOPIC SUMMARY
         // Gives the system prompt and query router awareness of what's in the KB
         // ============================================
@@ -802,6 +820,7 @@ export async function POST(request: NextRequest) {
                         maxOutputTokens: 2048,
                         enableWebSearch, // Enables web_search tool in Web/Full Power modes
                         systemInstruction, // Native Gemini system_instruction field
+                        customTools: customTools.length > 0 ? customTools : undefined, // Creator-defined API tools
                     }
                 );
                 response = citationResult.answer;
