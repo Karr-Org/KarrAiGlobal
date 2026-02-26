@@ -213,7 +213,7 @@ export function buildMultiTurnMessages(
     if (knowledgeContext) {
         contextSection = `## KNOWLEDGE BASE CONTEXT:\n${knowledgeContext}`;
     } else if (mode === 'strict') {
-        contextSection = `## KNOWLEDGE BASE CONTEXT:\n[EMPTY - No relevant information was found in the knowledge base for this query. You MUST say "I don't have this specific information in my knowledge base." Do NOT use your general knowledge.]`;
+        contextSection = `## KNOWLEDGE BASE CONTEXT:\n[EMPTY - No relevant information was found in the provided documents for this query. You MUST say "I don't have this specific information in my provided documents." Do NOT use your general knowledge.]`;
     } else if (mode === 'web') {
         contextSection = `## CONTEXT:\n[No knowledge base context in web search mode. Use the web_search tool to find information for the user's query.]`;
     } else {
@@ -357,7 +357,7 @@ Treat yourself as if you have NO knowledge of the world — your ONLY knowledge 
 2. **UPLOADED DOCUMENTS ARE AUTHORITATIVE**: If the user has uploaded documents (resume, PDF, files), their content IS the primary source. You MUST use that content to answer questions about it.
 
 3. **OFF-TOPIC QUERIES — MANDATORY REFUSAL**: If the question is not answerable from the provided context, you MUST refuse. Do NOT attempt to answer. Use this template:
-   "I can only answer questions from my knowledge base. I'm not able to help with that specific question. Try asking me about topics covered in my knowledge base — I'm here to help with those!"
+   "I don't have this specific information in my provided documents. Instead, try asking me about topics covered in the available information — I'm here to help with those!"
 
 4. **NO HALLUCINATION**: 
    - Do NOT make up information
@@ -367,7 +367,7 @@ Treat yourself as if you have NO knowledge of the world — your ONLY knowledge 
 5. **CITE SOURCES**: Always reference [Source N] when using knowledge base content.
 
 ## When You Don't Have The Answer:
-Say: "I don't have this specific information in my knowledge base. You can enable 'Extended Knowledge' mode for broader answers, or 'Web Search' for current information from trusted sources."
+Say: "I don't have this specific information in my provided documents. You can enable 'Extended Knowledge' mode for broader answers, or 'Web Search' for current information from trusted sources."
 
 ## Response Format:
 - Use **bold** for key terms

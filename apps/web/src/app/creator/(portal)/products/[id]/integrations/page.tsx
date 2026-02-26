@@ -556,8 +556,8 @@ export default function IntegrationsPage() {
                                     key={opt.value}
                                     onClick={() => setForm(f => ({ ...f, auth_type: opt.value as any }))}
                                     className={`px-3 py-2 rounded-lg border text-left text-[12px] transition-all ${form.auth_type === opt.value
-                                            ? 'border-[#c4715b] bg-[#c4715b]/5'
-                                            : 'border-[#e8e4df] hover:border-[#ccc]'
+                                        ? 'border-[#c4715b] bg-[#c4715b]/5'
+                                        : 'border-[#e8e4df] hover:border-[#ccc]'
                                         }`}
                                 >
                                     <div className="font-medium text-[#2d2d2d]">{opt.label}</div>
@@ -577,6 +577,7 @@ export default function IntegrationsPage() {
                                         value={form.api_key}
                                         onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))}
                                         placeholder="sk-xxxxxxxxxxxx"
+                                        autoComplete="new-password"
                                         className="w-full px-3 py-2 rounded-lg border border-[#e8e4df] text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-[#c4715b]/30"
                                     />
                                     <p className="text-[11px] text-[#b5b0a9] mt-1">🔒 Encrypted at rest. Never exposed to end users.</p>
