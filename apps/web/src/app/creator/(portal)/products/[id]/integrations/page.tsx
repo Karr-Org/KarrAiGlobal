@@ -123,6 +123,20 @@ export default function IntegrationsPage() {
     const [error, setError] = useState('');
     const [expandedTool, setExpandedTool] = useState<string | null>(null);
 
+    // Test state
+    const [testing, setTesting] = useState(false);
+    const [testParams, setTestParams] = useState<Record<string, string>>({});
+    const [testResult, setTestResult] = useState<{
+        success: boolean;
+        status_code: number;
+        response_time_ms: number;
+        raw_response: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+        extracted_results: { title: string | null; content: string; url: string | null }[];
+        is_json: boolean;
+        error_message: string | null;
+    } | null>(null);
+    const [showRawJson, setShowRawJson] = useState(false);
+
     useEffect(() => {
         loadData();
     }, [productId]);
@@ -303,6 +317,49 @@ export default function IntegrationsPage() {
             ...f,
             parameters: f.parameters.map((p, idx) => idx === i ? { ...p, [field]: value } : p),
         }));
+    };
+
+    const handleTest = async () => {
+        setError('');
+        if (!form.api_endpoint.trim()) {
+            setError('API endpoint is required to test.');
+            return;
+        }
+        setTesting(true);
+        setTestResult(null);
+        try {
+            const res = await fetch('/api/creator/product-tools/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tool_id: form.id || undefined,
+                    api_endpoint: form.api_endpoint,
+                    http_method: form.http_method,
+                    auth_type: form.auth_type,
+                    api_key: form.api_key || undefined,
+                    auth_header_name: form.auth_header_name,
+                    auth_query_param: form.auth_query_param,
+                    parameters_schema: undefined,
+                    response_config: form.response_config,
+                    request_config: undefined,
+                    test_params: testParams,
+                }),
+            });
+            const data = await res.json();
+            setTestResult(data);
+        } catch (err: any) {
+            setTestResult({
+                success: false,
+                status_code: 0,
+                response_time_ms: 0,
+                raw_response: null,
+                extracted_results: [],
+                is_json: false,
+                error_message: err.message || 'Network error',
+            });
+        } finally {
+            setTesting(false);
+        }
     };
 
     // ============================================================================
@@ -716,6 +773,117 @@ export default function IntegrationsPage() {
                                 />
                             </div>
                         </div>
+                    </div>
+
+                    {/* Test Connection */}
+                    <div className="bg-[#faf9f7] rounded-lg p-4 mb-5">
+                        <div className="flex items-center gap-2 mb-3">
+                            <TestTube className="w-3.5 h-3.5" style={{ color: productColor }} />
+                            <span className="text-[13px] font-medium text-[#2d2d2d]">Test Connection</span>
+                        </div>
+                        <p className="text-[11px] text-[#b5b0a9] mb-3">
+                            Enter test values for your parameters and hit Test to see the live API response.
+                        </p>
+
+                        {/* Test Parameter Inputs */}
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            {form.parameters.filter(p => p.name.trim()).map(p => (
+                                <div key={p.name}>
+                                    <label className="block text-[11px] font-medium text-[#8b8b8b] mb-1">
+                                        {p.name} {p.required && <span className="text-red-400">*</span>}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={testParams[p.name] || ''}
+                                        onChange={e => setTestParams(tp => ({ ...tp, [p.name]: e.target.value }))}
+                                        placeholder={p.description || `Enter ${p.name}`}
+                                        className="w-full px-2 py-1.5 rounded border border-[#e8e4df] text-[12px] focus:outline-none focus:ring-2 focus:ring-[#c4715b]/30"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+
+                        <button
+                            onClick={handleTest}
+                            disabled={testing}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-[13px] font-medium transition-all disabled:opacity-50"
+                            style={{ borderColor: productColor, color: productColor }}
+                        >
+                            {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                            {testing ? 'Testing...' : 'Test Connection'}
+                        </button>
+
+                        {/* Test Results */}
+                        {testResult !== null ? (
+                            <div className="mt-4 rounded-lg border border-[#e8e4df] overflow-hidden">
+                                {/* Status Bar */}
+                                <div className={`px-4 py-2.5 flex items-center justify-between text-[13px] font-medium ${testResult.success
+                                    ? 'bg-green-50 text-green-800 border-b border-green-100'
+                                    : 'bg-red-50 text-red-800 border-b border-red-100'
+                                    }`}>
+                                    <span>
+                                        {testResult.success ? '✅' : '❌'}{' '}
+                                        HTTP {testResult.status_code}
+                                    </span>
+                                    <span className="text-[11px] font-normal opacity-70">
+                                        {testResult.response_time_ms}ms
+                                    </span>
+                                </div>
+
+                                {/* Error Message */}
+                                {(testResult.error_message && !testResult.success) ? (
+                                    <div className="px-4 py-2 bg-red-50 text-red-700 text-[12px]">
+                                        {String(testResult.error_message)}
+                                    </div>
+                                ) : null}
+
+                                {/* Extracted Results (what the LLM sees) */}
+                                {(testResult.extracted_results.length > 0) ? (
+                                    <div className="p-4 border-b border-[#e8e4df]">
+                                        <div className="text-[12px] font-medium text-[#5a5a5a] mb-2">
+                                            🤖 What the AI sees ({testResult.extracted_results.length} result{testResult.extracted_results.length !== 1 ? 's' : ''}):
+                                        </div>
+                                        <div className="space-y-2">
+                                            {testResult.extracted_results.map((r, i) => (
+                                                <div key={i} className="rounded bg-white border border-[#e8e4df] p-3 text-[12px]">
+                                                    {r.title && <div className="font-medium text-[#2d2d2d] mb-1">{r.title}</div>}
+                                                    <div className="text-[#5a5a5a] line-clamp-3">{r.content}</div>
+                                                    {r.url && <div className="text-[#c4715b] mt-1 text-[11px] truncate">{r.url}</div>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {/* Raw JSON Toggle */}
+                                {testResult.is_json && testResult.raw_response && (
+                                    <div className="p-4">
+                                        <button
+                                            onClick={() => setShowRawJson(!showRawJson)}
+                                            className="text-[12px] text-[#8b8b8b] hover:text-[#2d2d2d] flex items-center gap-1 mb-2"
+                                        >
+                                            {showRawJson ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                            {showRawJson ? 'Hide' : 'Show'} Raw JSON
+                                        </button>
+                                        {showRawJson && (
+                                            <pre className="bg-[#1a1a2e] text-green-300 text-[11px] p-3 rounded-lg overflow-auto max-h-64 font-mono whitespace-pre-wrap">
+                                                {JSON.stringify(testResult.raw_response, null, 2)}
+                                            </pre>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Non-JSON raw response */}
+                                {!testResult.is_json && testResult.raw_response && (
+                                    <div className="p-4">
+                                        <div className="text-[12px] font-medium text-[#5a5a5a] mb-2">Raw Response (not JSON):</div>
+                                        <pre className="bg-[#1a1a2e] text-amber-300 text-[11px] p-3 rounded-lg overflow-auto max-h-40 font-mono whitespace-pre-wrap">
+                                            {String(testResult.raw_response)}
+                                        </pre>
+                                    </div>
+                                )}
+                            </div>
+                        ) : null}
                     </div>
 
                     {/* Save Button */}
