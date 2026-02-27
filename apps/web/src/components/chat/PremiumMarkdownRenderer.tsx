@@ -909,8 +909,9 @@ function createCustomComponents(brandColor: string, citationMap?: Map<number, In
                 const excerpt = cit.source?.excerpt || '';
                 const type = cit.source?.type || 'web';
                 const isWeb = type === 'web' || type === 'live_web';
-                const typeLabel = isWeb ? '🌐 Web' : '📚 Knowledge Base';
-                const typeClass = isWeb ? 'cite-web' : 'cite-kb';
+                const isApi = type === 'api';
+                const typeLabel = isApi ? '🔌 API' : isWeb ? '🌐 Web' : '📚 Knowledge Base';
+                const typeClass = isApi ? 'cite-api' : isWeb ? 'cite-web' : 'cite-kb';
                 const url = cit.source?.url || '';
 
                 return (
@@ -988,7 +989,7 @@ export function PremiumMarkdownRenderer({
                     return nums.map((num: string) => {
                         const idx = parseInt(num, 10);
                         const type = citationSourceMap.get(idx)?.source?.type || 'kb';
-                        const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : 'cite-kb';
+                        const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : type === 'api' ? 'cite-api' : 'cite-kb';
                         return `<sup data-cite="${idx}" class="${typeClass}">${idx}</sup>`;
                     }).join('');
                 }
@@ -1000,7 +1001,7 @@ export function PremiumMarkdownRenderer({
                 (_, num) => {
                     const idx = parseInt(num, 10);
                     const type = citationSourceMap.get(idx)?.source?.type || 'kb';
-                    const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : 'cite-kb';
+                    const typeClass = (type === 'web' || type === 'live_web') ? 'cite-web' : type === 'api' ? 'cite-api' : 'cite-kb';
                     return `<sup data-cite="${idx}" class="${typeClass}">${idx}</sup>`;
                 }
             );

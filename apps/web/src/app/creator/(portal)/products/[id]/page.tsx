@@ -15,6 +15,7 @@ import {
     Brain,
     BookOpen,
     Zap,
+    Plug,
 } from 'lucide-react';
 
 interface Product {
@@ -221,6 +222,16 @@ export default function CreatorProductSettingsPage() {
                     <div>
                         <div className="text-[13px] font-medium text-[#2d2d2d]">Deploy & Integrate</div>
                         <div className="text-[11px] text-[#8b8b8b]">Widget, API keys & embed code</div>
+                    </div>
+                </Link>
+                <Link
+                    href={`/creator/products/${id}/integrations`}
+                    className="bg-white rounded-lg border border-[#e8e4df] p-3.5 hover:border-[#c4715b]/30 transition-colors flex items-center gap-3"
+                >
+                    <Plug className="w-4 h-4 text-[#c4715b]" />
+                    <div>
+                        <div className="text-[13px] font-medium text-[#2d2d2d]">API Integrations</div>
+                        <div className="text-[11px] text-[#8b8b8b]">Connect external APIs</div>
                     </div>
                 </Link>
             </div>

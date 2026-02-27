@@ -21,6 +21,12 @@ import {
 
 import { searchSerperOpen, extractPageContent } from './live-web-search';
 import type { WebSearchResult } from './live-web-search';
+import {
+    ProductApiTool,
+    executeCustomTool,
+    formatApiResultsForLLM,
+    MAX_CUSTOM_TOOL_CALLS,
+} from './custom-tool-executor';
 
 // ============================================================================
 // CONSTANTS
@@ -126,6 +132,10 @@ export async function generateWithCitationTool(
         temperature?: number;
         maxOutputTokens?: number;
         enableWebSearch?: boolean;
+        /** System instruction passed via Gemini's native field (not injected into user messages) */
+        systemInstruction?: string;
+        /** Creator-configured custom API tools (fetched from product_api_tools) */
+        customTools?: ProductApiTool[];
     }
 ): Promise<CitationToolResponse> {
     if (!GOOGLE_AI_API_KEY) {
@@ -134,48 +144,73 @@ export async function generateWithCitationTool(
 
     const startTime = Date.now();
     const enableWebSearch = options?.enableWebSearch ?? false;
+    const customTools = options?.customTools || [];
+
+    // Build dynamic function declarations for creator-defined API tools
+    const customDeclarations = customTools.map(tool => ({
+        name: tool.tool_name,
+        description: tool.description,
+        parameters: tool.parameters_schema,
+    }));
+
+    // Set of custom tool names for fast lookup in the multi-turn loop
+    const customToolNames = new Set(customTools.map(t => t.tool_name));
+    const customToolMap = new Map(customTools.map(t => [t.tool_name, t]));
 
     // Build tool declarations based on mode
-    const functionDeclarations = enableWebSearch
-        ? [WEB_SEARCH_TOOL_DECLARATION, CITATION_TOOL_DECLARATION]
-        : [CITATION_TOOL_DECLARATION];
+    const functionDeclarations = [
+        ...(enableWebSearch ? [WEB_SEARCH_TOOL_DECLARATION] : []),
+        ...customDeclarations,
+        CITATION_TOOL_DECLARATION,
+    ];
 
     console.log(
         '[CitationTool] Starting generation | Sources:', sources.length,
-        '| Web search:', enableWebSearch ? 'ENABLED' : 'disabled'
+        '| Web search:', enableWebSearch ? 'ENABLED' : 'disabled',
+        '| Custom tools:', customTools.length > 0 ? customTools.map(t => t.tool_name).join(', ') : 'none'
     );
 
-    // Mutable sources array — web results get appended here as new CitationSources
+    // Mutable sources array — web results and API results get appended here
     const allSources = [...sources];
 
     // Multi-turn conversation state — starts with the user's messages
     let conversationContents = [...messages];
 
     let webSearchCallCount = 0;
+    let customToolCallCount = 0;
 
     try {
         // ── Multi-turn loop ──
         // Gemini may call web_search one or more times before calling respond_with_citations.
         // We loop until we get the final citation response or hit the max search calls.
         while (true) {
+            const requestBody: Record<string, unknown> = {
+                contents: conversationContents,
+                tools: [{ functionDeclarations }],
+                toolConfig: {
+                    functionCallingConfig: {
+                        mode: 'AUTO',
+                    },
+                },
+                generationConfig: {
+                    temperature: options?.temperature ?? 0.3,
+                    maxOutputTokens: options?.maxOutputTokens ?? 4096,
+                    topP: 0.95,
+                    topK: 40,
+                },
+            };
+
+            // Use Gemini's native system_instruction field when provided
+            if (options?.systemInstruction) {
+                requestBody.system_instruction = {
+                    parts: [{ text: options.systemInstruction }],
+                };
+            }
+
             const response = await fetch(`${GEMINI_ENDPOINT}?key=${GOOGLE_AI_API_KEY}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: conversationContents,
-                    tools: [{ functionDeclarations }],
-                    toolConfig: {
-                        functionCallingConfig: {
-                            mode: 'AUTO',
-                        },
-                    },
-                    generationConfig: {
-                        temperature: options?.temperature ?? 0.3,
-                        maxOutputTokens: options?.maxOutputTokens ?? 4096,
-                        topP: 0.95,
-                        topK: 40,
-                    },
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             if (!response.ok) {
@@ -286,6 +321,89 @@ export async function generateWithCitationTool(
 
                 // Loop again — Gemini will now have the web results and should either
                 // search more or call respond_with_citations
+                continue;
+            }
+
+            // ── Check for custom API tool calls ──
+            const customToolCallPart = candidate.content.parts.find(
+                (part: any) => part.functionCall && customToolNames.has(part.functionCall?.name)
+            );
+
+            if (customToolCallPart?.functionCall && customToolCallCount < MAX_CUSTOM_TOOL_CALLS) {
+                customToolCallCount++;
+                const toolName = customToolCallPart.functionCall.name;
+                const toolArgs = customToolCallPart.functionCall.args || {};
+                const toolConfig = customToolMap.get(toolName)!;
+
+                console.log(`[CitationTool] 🔌 Custom tool "${toolName}" called (${customToolCallCount}/${MAX_CUSTOM_TOOL_CALLS}):`, JSON.stringify(toolArgs));
+
+                try {
+                    // Execute the 3rd-party API call (includes decrypt, SSRF check, timeout)
+                    const { results } = await executeCustomTool(toolConfig, toolArgs);
+
+                    // Convert results into CitationSources
+                    const apiSourceStartIndex = allSources.length;
+                    for (const result of results) {
+                        allSources.push({
+                            id: `api-${allSources.length}`,
+                            type: 'api' as const,
+                            domain: (() => { try { return new URL(toolConfig.api_endpoint).hostname; } catch { return toolConfig.display_name; } })(),
+                            display_name: result.title || toolConfig.display_name,
+                            title: result.title || 'API Result',
+                            url: result.url || null,
+                            authority_score: 8,
+                            trust_stars: 4,
+                            contextual_summary: result.content?.substring(0, 200) || null,
+                            chunk_content: result.content || '',
+                            relevance_score: 0.85,
+                        });
+                    }
+
+                    // Feed results back to Gemini as a functionResponse
+                    const apiResultsSummary = formatApiResultsForLLM(results, apiSourceStartIndex);
+
+                    console.log(`[CitationTool] Fed ${results.length} API results back (sources ${apiSourceStartIndex + 1}-${allSources.length})`);
+
+                    conversationContents.push({
+                        role: 'model',
+                        parts: [{ functionCall: customToolCallPart.functionCall }],
+                    });
+                    conversationContents.push({
+                        role: 'user',
+                        parts: [{
+                            functionResponse: {
+                                name: toolName,
+                                response: {
+                                    results: apiResultsSummary,
+                                    total_results: results.length,
+                                    source_indices: `Sources ${apiSourceStartIndex + 1} to ${allSources.length}`,
+                                    note: 'These API results have been added to your source context. Cite them using their source indices when answering.',
+                                },
+                            },
+                        }],
+                    });
+                } catch (apiError: any) {
+                    console.error(`[CitationTool] Custom tool "${toolName}" failed:`, apiError.message);
+
+                    // Feed the error back to Gemini so it can respond gracefully
+                    conversationContents.push({
+                        role: 'model',
+                        parts: [{ functionCall: customToolCallPart.functionCall }],
+                    });
+                    conversationContents.push({
+                        role: 'user',
+                        parts: [{
+                            functionResponse: {
+                                name: toolName,
+                                response: {
+                                    error: `API call failed: ${apiError.message}`,
+                                    note: 'The API call failed. Answer using your other available sources instead.',
+                                },
+                            },
+                        }],
+                    });
+                }
+
                 continue;
             }
 
