@@ -223,10 +223,20 @@ export async function POST(request: NextRequest) {
         const sanitizedQuery = sanitizeUserInput(query);
         const isConversational = isConversationalQuery(sanitizedQuery);
 
+        // Step 0: Rewrite query to resolve pronouns and references BEFORE retrieval
+        // This is critical — "tell me more", "what about it?" etc. need to be
+        // resolved to actual topics before we embed and search the KB.
+        const rewrittenQueryResult = rewriteQuery(sanitizedQuery, conversationHistory as ConversationMessage[]);
+        const effectiveQuery = rewrittenQueryResult.rewritten;
+
+        if (rewrittenQueryResult.isFollowUp) {
+            console.log(`[Query Rewrite] "${sanitizedQuery}" → "${effectiveQuery}" (${rewrittenQueryResult.referenceType})`);
+        }
+
         // Skip embedding for conversational queries and web-only mode (saves API call)
         let queryEmbedding: number[] = [];
         if (!isConversational && !isWebOnly) {
-            queryEmbedding = await getEmbedding(sanitizedQuery);
+            queryEmbedding = await getEmbedding(effectiveQuery);
             if (queryEmbedding.length === 0) {
                 return NextResponse.json(
                     { error: 'Failed to process query' },
@@ -391,7 +401,7 @@ export async function POST(request: NextRequest) {
 
             const { data: globalChunks, error: globalError } = await supabase.rpc('hybrid_search', {
                 query_embedding: queryEmbedding,
-                query_text: query,
+                query_text: effectiveQuery,
                 p_product_id: productId,
                 p_user_id: productUser.user_id,
                 match_count: 5,
@@ -673,15 +683,6 @@ export async function POST(request: NextRequest) {
         // ============================================
         // GENERATE RESPONSE - WORLD-CLASS INTELLIGENCE
         // ============================================
-
-        // Step 1: Rewrite query to resolve pronouns and references
-        // Use sanitizedQuery so injection patterns stripped earlier aren't re-introduced
-        const rewrittenQueryResult = rewriteQuery(sanitizedQuery, conversationHistory as ConversationMessage[]);
-        const effectiveQuery = rewrittenQueryResult.rewritten;
-
-        if (rewrittenQueryResult.isFollowUp) {
-            console.log(`[Query Rewrite] "${sanitizedQuery}" → "${effectiveQuery}" (${rewrittenQueryResult.referenceType})`);
-        }
 
         // Step 2: Build adaptive intelligence context
         // This is THE REVOLUTIONARY FEATURE - personalized AI based on user's profile
