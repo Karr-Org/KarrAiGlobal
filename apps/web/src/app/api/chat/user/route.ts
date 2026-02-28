@@ -248,6 +248,13 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // 5a: Warn early if web search is enabled without the Serper API key.
+        // This prevents silent failures where the LLM tries to search but
+        // receives empty results and tells the user "I couldn't find anything".
+        if (enableWebSearch && !process.env.SERPER_API_KEY) {
+            console.warn('[UserChat] ⚠️ Web search enabled but SERPER_API_KEY is not set — web queries will return empty results');
+        }
+
         // Get product user info
         const { data: productUser } = await supabase
             .from('product_users')
@@ -749,7 +756,7 @@ export async function POST(request: NextRequest) {
                 // when you can't answer from provided context" overrides the web search
                 // instructions and causes the LLM to refuse instead of searching.
                 if (isStrictMode) {
-                    personaBlock += `\n## CUSTOM FALLBACK\nWhen you cannot answer a question from the provided context, respond with: "${persona.fallback_message}"\nThis overrides any other refusal instructions — ALWAYS use this fallback message instead of making up your own.\n`;
+                    personaBlock += `\n## RESPONSE GUIDELINES WHEN CONTEXT IS INSUFFICIENT\nIf your knowledge base context doesn't contain enough information to fully answer the user's question:\n1. First, share ANY partial information you DO have from the context that's relevant.\n2. Then, acknowledge what you couldn't find by naturally incorporating this tone: "${persona.fallback_message}"\n3. If you have related topics from the context, suggest them.\nNever use the fallback verbatim as your entire response — always try to add value first.\n`;
                 }
             }
 
@@ -773,12 +780,10 @@ export async function POST(request: NextRequest) {
         // ============================================
         if (isWebOnly) {
             systemPrompt += `\n\n## ⚡ WEB SEARCH MODE — CRITICAL OVERRIDE (HIGHEST PRIORITY AFTER IDENTITY)
-- You are in WEB SEARCH MODE. The user has explicitly enabled web search.
-- DO NOT introduce yourself. DO NOT say "How can I help you?" — the user has already asked a question.
-- DO NOT ask for confirmation or say "Would you like me to proceed?" — just search immediately.
-- DO NOT mention a knowledge base. You do not have a knowledge base in this mode.
-- DO NOT refuse to search. If the user asks a question, use the web_search tool IMMEDIATELY.
+- You are a web research assistant. The user has explicitly enabled web search.
+- Use the web_search tool IMMEDIATELY when the user asks a question — do not hesitate.
 - Answer the question directly using web search results. Cite your sources.
+- If the web_search tool returns no results, say: "I couldn't find this information on the web right now. Try rephrasing your question or ask me something else."
 - This overrides any other instruction that conflicts with searching the web.`;
         }
 

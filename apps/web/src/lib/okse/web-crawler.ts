@@ -52,6 +52,13 @@ function getExpirationTime(authorityScore: number): Date {
         ttlHours = CACHE_TTL.web_commentary;
     }
 
+    // 6c: Extend TTL for high-authority sources to prevent premature expiration.
+    // Government and top-tier professional content changes infrequently, so
+    // aggressively short TTLs cause the crawler's data to silently disappear.
+    if (authorityScore >= 8) {
+        ttlHours = Math.max(ttlHours, 168); // At least 7 days for authority >= 8
+    }
+
     return new Date(Date.now() + ttlHours * 60 * 60 * 1000);
 }
 
@@ -214,19 +221,32 @@ export class WebCrawlerService {
      * In production, this would use sitemaps, RSS feeds, etc.
      */
     private async discoverUrls(source: TrustedWebSource): Promise<string[]> {
-        // For MVP, we'll just return the base domain URL
-        // In production, this would:
-        // 1. Check sitemap.xml
-        // 2. Check RSS feeds
-        // 3. Crawl navigation links
-        // 4. Match URL patterns
-
         const urls: string[] = [];
         const baseUrl = source.domain.startsWith('http')
             ? source.domain
             : `https://${source.domain}`;
 
         urls.push(baseUrl);
+
+        // 6a: Parse sitemap.xml to discover actual content pages instead
+        // of only crawling the homepage (which is often just marketing).
+        try {
+            const sitemapUrl = `${baseUrl}/sitemap.xml`;
+            const sitemapRes = await fetch(sitemapUrl, {
+                headers: { 'User-Agent': 'KarrAI-Crawler/1.0 (Compatible; Educational)' },
+                signal: AbortSignal.timeout(5000),
+            });
+            if (sitemapRes.ok) {
+                const sitemapXml = await sitemapRes.text();
+                const urlMatches = sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g);
+                for (const match of urlMatches) {
+                    urls.push(match[1]);
+                }
+                console.log(`[WebCrawler] Sitemap found: ${urls.length - 1} URLs discovered from ${sitemapUrl}`);
+            }
+        } catch {
+            console.log(`[WebCrawler] No sitemap.xml found for ${baseUrl}, using configured patterns`);
+        }
 
         // Add configured URL patterns
         for (const pattern of source.url_patterns || []) {
@@ -438,13 +458,19 @@ export class WebCrawlerService {
         for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];
 
-            // Generate embedding
-            const embedding = await generateEmbedding(chunk);
+            // 6b: Prefix chunk with source domain context so the LLM knows
+            // where this information comes from. Without this, marketing
+            // text like "File your ITR today" has no attribution and the
+            // LLM can't answer "what is ClearTax?" from those chunks.
+            const enrichedChunk = `[From ${source.display_name || source.domain}] ${chunk}`;
+
+            // Generate embedding from enriched chunk for better retrieval
+            const embedding = await generateEmbedding(enrichedChunk);
 
             // Generate contextual summary
             const contextualSummary = await this.generateContextualSummary(chunk, result.title || url);
 
-            // Store chunk
+            // Store chunk with enriched content
             await supabase.from('web_knowledge_chunks').insert({
                 cache_id: cache.id,
                 product_id: source.product_id,
@@ -452,7 +478,7 @@ export class WebCrawlerService {
                 source_display_name: source.display_name || source.domain,
                 source_url: url,
                 source_title: result.title,
-                content: chunk,
+                content: enrichedChunk,
                 chunk_index: i,
                 embedding,
                 contextual_summary: contextualSummary,
