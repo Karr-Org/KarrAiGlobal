@@ -302,6 +302,48 @@ const MAX_RESPONSE_SIZE = 50 * 1024;
 export const MAX_CUSTOM_TOOL_CALLS = 3;
 
 /**
+ * Read a response body with a byte limit using streaming.
+ * Aborts the connection as soon as the limit is exceeded,
+ * preventing the entire payload from being buffered in memory.
+ */
+export async function readResponseWithLimit(
+    response: Response,
+    maxBytes: number
+): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        // Fallback for environments without streaming — safe-ish with small limit
+        const text = await response.text();
+        return text.substring(0, maxBytes);
+    }
+
+    const decoder = new TextDecoder();
+    let result = '';
+    let totalBytes = 0;
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            totalBytes += value.byteLength;
+            if (totalBytes > maxBytes) {
+                // Take only the bytes we need from this chunk
+                const overshoot = totalBytes - maxBytes;
+                const usable = value.slice(0, value.byteLength - overshoot);
+                result += decoder.decode(usable, { stream: false });
+                break;
+            }
+            result += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        reader.cancel().catch(() => { });
+    }
+
+    return result;
+}
+
+/**
  * Execute a custom API tool call end-to-end:
  * 1. Validate endpoint (SSRF protection)
  * 2. Decrypt the API key
@@ -345,15 +387,14 @@ export async function executeCustomTool(
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            const errText = await response.text().catch(() => '');
+            const errText = await readResponseWithLimit(response, 2048);
             console.error(`[CustomTool] API error ${response.status}:`, errText.substring(0, 500));
             throw new Error(`API returned ${response.status}: ${errText.substring(0, 200)}`);
         }
 
-        // Read response with size limit
-        const text = await response.text();
-        const truncated = text.substring(0, MAX_RESPONSE_SIZE);
-        const rawData = JSON.parse(truncated);
+        // Read response with stream-based size limit (prevents OOM)
+        const text = await readResponseWithLimit(response, MAX_RESPONSE_SIZE);
+        const rawData = JSON.parse(text);
 
         // Extract structured results
         const results = extractToolResults(rawData, tool.response_config);

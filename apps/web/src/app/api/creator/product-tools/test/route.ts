@@ -21,6 +21,7 @@ import {
     buildToolRequest,
     extractToolResults,
     validateEndpoint,
+    readResponseWithLimit,
     type ProductApiTool,
 } from '@/lib/okse/custom-tool-executor';
 
@@ -145,12 +146,11 @@ export async function POST(req: NextRequest) {
         clearTimeout(timeoutId);
 
         const responseTime = Date.now() - startTime;
-        const responseText = await response.text();
-        const truncated = responseText.substring(0, 100 * 1024); // 100KB max for test
+        const responseText = await readResponseWithLimit(response, 100 * 1024); // 100KB max for test
 
         let rawData: unknown;
         try {
-            rawData = JSON.parse(truncated);
+            rawData = JSON.parse(responseText);
         } catch {
             // Not JSON — return raw text
             return NextResponse.json({
@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
                 status_code: response.status,
                 response_time_ms: responseTime,
                 content_type: response.headers.get('content-type') || 'unknown',
-                raw_response: truncated.substring(0, 5000),
+                raw_response: responseText.substring(0, 5000),
                 extracted_results: [],
                 is_json: false,
                 error_message: response.ok ? null : `HTTP ${response.status}`,
