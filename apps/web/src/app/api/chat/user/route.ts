@@ -497,48 +497,17 @@ export async function POST(request: NextRequest) {
         let kbWasEmpty = isWebOnly ? false : allChunks.length === 0;
 
         // ============================================
-        // 2.6. STRICT MODE GUARD — refuse off-topic queries
-        // Only triggers when truly 0 chunks from ALL sources (KB + crawled web).
-        // Instead of a hardcoded refusal, we let the LLM handle it naturally
-        // via the prompt rules. Only bypass the LLM entirely if the KB
-        // is totally empty AND the query is clearly non-conversational.
+        // 2.6. STRICT MODE — let the LLM decide refusals
+        // Previously this block had a hardcoded early-exit refusal when
+        // kbWasEmpty was true. That bypassed the LLM and prevented it
+        // from using conversation history, partial context, or its own
+        // reasoning. The STRICT_MODE_PROMPT already instructs the LLM
+        // to answer only from context and explain naturally when context
+        // is insufficient — so we let it handle all cases.
         // ============================================
         const isStrictMode = !enableExtendedKnowledge && !enableWebSearch;
-        if (isStrictMode && !isConversational && kbWasEmpty) {
-            console.log('[UserChat] STRICT MODE: KB empty for non-conversational query');
-
-            // If persona has a custom fallback, use it (creator knows best)
-            if (persona?.fallback_message) {
-                const refusalMessage = persona.fallback_message;
-                return NextResponse.json({
-                    answer: refusalMessage,
-                    response: refusalMessage,
-                    metadata: { task_detected: null, entity_detected: null },
-                    reasoning: { confidence: 1.0, kbWasEmpty: true },
-                    inline_citations: [],
-                    memorySuggestions: [],
-                });
-            }
-
-            // No persona fallback — build a natural refusal with topic hints
-            const topicHint = kbTopicSummary
-                ? `My knowledge base covers **${kbTopicSummary}**.`
-                : kbTitles.length > 0
-                    ? `My knowledge base covers topics from: **${kbTitles.slice(0, 5).join(', ')}**${kbTitles.length > 5 ? ' and more' : ''}.`
-                    : '';
-
-            const refusalMessage = topicHint
-                ? `I wasn't able to find information about that in my documents.\n\n${topicHint}\n\nFeel free to ask me about those topics, or switch to **Extended mode** or **Web Search** for broader answers.`
-                : `I wasn't able to find information about that in my documents. Try rephrasing your question, or switch to **Extended mode** or **Web Search** for broader answers.`;
-
-            return NextResponse.json({
-                answer: refusalMessage,
-                response: refusalMessage,
-                metadata: { task_detected: null, entity_detected: null },
-                reasoning: { confidence: 1.0, kbWasEmpty: true },
-                inline_citations: [],
-                memorySuggestions: [],
-            });
+        if (isStrictMode && kbWasEmpty) {
+            console.log('[UserChat] STRICT MODE: KB empty — LLM will handle (no hardcoded refusal)');
         }
 
         // ============================================
