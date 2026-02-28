@@ -440,6 +440,40 @@ export async function POST(request: NextRequest) {
                     });
                 });
             }
+
+            // ============================================
+            // 2.1. CRAWLED WEBSITE KNOWLEDGE (Website Learning)
+            // Searches web_knowledge_chunks — data crawled from
+            // trusted web sources configured on the Persona page.
+            // ============================================
+            if (queryEmbedding.length > 0) {
+                try {
+                    const { data: webChunks, error: webError } = await supabase.rpc('okse_web_search', {
+                        p_query_embedding: queryEmbedding,
+                        p_product_id: productId,
+                        p_match_count: 3,
+                        p_min_authority: 3,
+                    });
+
+                    if (webError) {
+                        console.warn('[UserChat] okse_web_search error:', webError);
+                    }
+
+                    if (webChunks?.length > 0) {
+                        console.log(`[UserChat] Found ${webChunks.length} crawled website chunks`);
+                        webChunks.forEach((chunk: any) => {
+                            allChunks.push({
+                                content: chunk.content,
+                                similarity: chunk.similarity || 0.6,
+                                title: chunk.source_title || chunk.source_display_name || `${chunk.source_domain} (Website)`,
+                                type: 'web',
+                            });
+                        });
+                    }
+                } catch (webSearchErr) {
+                    console.warn('[UserChat] Crawled web search failed (non-critical):', webSearchErr);
+                }
+            }
         } // end: skip KB searches for conversational queries
 
         // ============================================
