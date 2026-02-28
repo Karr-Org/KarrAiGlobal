@@ -7,6 +7,7 @@
  */
 
 import { decryptApiKey } from '@/lib/crypto';
+import { lookup } from 'dns/promises';
 
 // ============================================================================
 // TYPES
@@ -60,37 +61,90 @@ export interface ToolResult {
 }
 
 // ============================================================================
-// SSRF PROTECTION
+// SSRF / ENDPOINT VALIDATION
 // ============================================================================
 
-/** Block requests to internal/private networks */
-const BLOCKED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    '::1',
-    'metadata.google.internal',
-    '169.254.169.254',
-];
+/**
+ * Check if an IP address falls within a private/reserved range.
+ * Covers: loopback, RFC 1918, link-local, broadcast, and IPv6 mapped.
+ */
+function isPrivateIP(ip: string): boolean {
+    // Handle IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
+    if (ip.startsWith('::ffff:')) {
+        return isPrivateIP(ip.slice(7));
+    }
 
-const BLOCKED_PREFIXES = [
-    '10.',
-    '172.16.', '172.17.', '172.18.', '172.19.',
-    '172.20.', '172.21.', '172.22.', '172.23.',
-    '172.24.', '172.25.', '172.26.', '172.27.',
-    '172.28.', '172.29.', '172.30.', '172.31.',
-    '192.168.',
-];
+    // IPv6 loopback and link-local
+    if (ip === '::1' || ip.startsWith('fe80:') || ip.startsWith('fc00:') || ip.startsWith('fd00:')) {
+        return true;
+    }
 
-function isBlockedUrl(endpoint: string): boolean {
+    // IPv4 checks
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p))) return false;
+
+    const [a, b] = parts;
+    if (a === 0) return true;                                     // 0.0.0.0/8
+    if (a === 10) return true;                                    // 10.0.0.0/8
+    if (a === 127) return true;                                   // 127.0.0.0/8
+    if (a === 169 && b === 254) return true;                       // 169.254.0.0/16 (link-local + cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;              // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;                       // 192.168.0.0/16
+    if (a === 255 && b === 255) return true;                       // broadcast
+
+    return false;
+}
+
+/**
+ * Validate an endpoint URL for safety.
+ * Resolves DNS and checks the resulting IP address.
+ * Throws on invalid/blocked endpoints.
+ */
+export async function validateEndpoint(endpoint: string): Promise<void> {
+    let url: URL;
     try {
-        const url = new URL(endpoint);
-        const hostname = url.hostname.toLowerCase();
-        if (BLOCKED_HOSTS.includes(hostname)) return true;
-        if (BLOCKED_PREFIXES.some(p => hostname.startsWith(p))) return true;
-        return false;
+        url = new URL(endpoint);
     } catch {
-        return true; // Invalid URL = blocked
+        throw new Error('Invalid endpoint URL');
+    }
+
+    // Only allow http/https
+    if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Only HTTP/HTTPS protocols are allowed');
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    // Quick-reject known bad hostnames
+    if (['localhost', 'metadata.google.internal'].includes(hostname)) {
+        throw new Error(`Blocked endpoint: ${hostname}`);
+    }
+
+    // Resolve DNS to IP and check against private ranges
+    try {
+        // If it's already an IP literal, check directly
+        const ipParts = hostname.split('.');
+        const isIpLiteral = ipParts.length === 4 && ipParts.every(p => !isNaN(Number(p)));
+
+        if (isIpLiteral) {
+            if (isPrivateIP(hostname)) {
+                throw new Error(`Blocked: ${hostname} resolves to a private IP`);
+            }
+        } else {
+            // Resolve hostname via DNS
+            const result = await lookup(hostname);
+            if (isPrivateIP(result.address)) {
+                throw new Error(`Blocked: ${hostname} resolves to private IP ${result.address}`);
+            }
+        }
+    } catch (err: any) {
+        // If DNS resolution itself failed, block the request
+        if (err.code === 'ENOTFOUND') {
+            throw new Error(`DNS resolution failed for ${hostname}`);
+        }
+        // Re-throw our own validation errors
+        if (err.message?.startsWith('Blocked')) throw err;
+        throw new Error(`Endpoint validation failed: ${err.message}`);
     }
 }
 
@@ -260,10 +314,8 @@ export async function executeCustomTool(
     llmArgs: Record<string, unknown>
 ): Promise<{ results: ToolResult[]; rawData: unknown }> {
 
-    // SSRF protection
-    if (isBlockedUrl(tool.api_endpoint)) {
-        throw new Error(`Blocked endpoint: ${tool.api_endpoint} is not an allowed URL`);
-    }
+    // SSRF protection — resolve DNS and validate IP
+    await validateEndpoint(tool.api_endpoint);
 
     console.log(`[CustomTool] Executing "${tool.tool_name}" → ${tool.http_method} ${tool.api_endpoint}`);
     console.log(`[CustomTool] LLM args:`, JSON.stringify(llmArgs));

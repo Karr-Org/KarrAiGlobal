@@ -20,6 +20,7 @@ import { decryptApiKey } from '@/lib/crypto';
 import {
     buildToolRequest,
     extractToolResults,
+    validateEndpoint,
     type ProductApiTool,
 } from '@/lib/okse/custom-tool-executor';
 
@@ -44,31 +45,6 @@ async function verifyProductOwner(productId: string): Promise<string | null> {
 
     if (!product || product.created_by !== user.id) return null;
     return user.id;
-}
-
-// SSRF protection (same as custom-tool-executor)
-const BLOCKED_HOSTS = [
-    'localhost', '127.0.0.1', '0.0.0.0', '::1',
-    'metadata.google.internal', '169.254.169.254',
-];
-const BLOCKED_PREFIXES = [
-    '10.', '172.16.', '172.17.', '172.18.', '172.19.',
-    '172.20.', '172.21.', '172.22.', '172.23.',
-    '172.24.', '172.25.', '172.26.', '172.27.',
-    '172.28.', '172.29.', '172.30.', '172.31.',
-    '192.168.',
-];
-
-function isBlockedUrl(endpoint: string): boolean {
-    try {
-        const url = new URL(endpoint);
-        const hostname = url.hostname.toLowerCase();
-        if (BLOCKED_HOSTS.includes(hostname)) return true;
-        if (BLOCKED_PREFIXES.some(p => hostname.startsWith(p))) return true;
-        return false;
-    } catch {
-        return true;
-    }
 }
 
 export async function POST(req: NextRequest) {
@@ -107,13 +83,8 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'api_endpoint is required' }, { status: 400 });
         }
 
-        // SSRF
-        if (isBlockedUrl(api_endpoint)) {
-            return NextResponse.json(
-                { error: 'Blocked endpoint: internal/private network addresses are not allowed' },
-                { status: 403 }
-            );
-        }
+        // SSRF — resolve DNS and validate resolved IP
+        await validateEndpoint(api_endpoint);
 
         // Resolve API key
         let resolvedApiKey: string | null = null;
