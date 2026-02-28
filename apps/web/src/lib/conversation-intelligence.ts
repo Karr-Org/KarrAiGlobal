@@ -91,16 +91,35 @@ function extractConversationTopics(history: ConversationMessage[]): string[] {
     // Look at the last few exchanges
     const recentHistory = history.slice(-6);
 
+    // Common stop words to filter out when extracting topics
+    const stopWords = new Set([
+        'what', 'is', 'are', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on',
+        'at', 'to', 'for', 'of', 'with', 'by', 'from', 'it', 'this', 'that',
+        'how', 'why', 'when', 'where', 'who', 'which', 'do', 'does', 'did',
+        'can', 'could', 'would', 'should', 'will', 'be', 'been', 'being',
+        'have', 'has', 'had', 'not', 'no', 'yes', 'about', 'more', 'tell',
+        'me', 'my', 'your', 'i', 'you', 'we', 'they', 'them', 'their',
+        'its', 'some', 'any', 'all', 'each', 'every', 'also', 'just',
+        'than', 'then', 'so', 'if', 'between', 'difference', 'please',
+    ]);
+
     for (const msg of recentHistory) {
         if (msg.role === 'user') {
-            // Extract nouns and key phrases from user questions
-            const matches = msg.content.match(/\b(GST|VAT|tax|rate|government|CGST|SGST|IGST|service|goods|India|state|central)\b/gi);
-            if (matches) {
-                topics.push(...matches.map(m => m.toUpperCase()));
+            // Generic: extract multi-word capitalized terms (proper nouns / acronyms)
+            const acronyms = msg.content.match(/\b[A-Z]{2,}\b/g);
+            if (acronyms) {
+                topics.push(...acronyms);
             }
+
+            // Generic: extract meaningful words (2+ chars, not stop words)
+            const words = msg.content
+                .replace(/[?!.,;:"'()\[\]{}]/g, '')
+                .split(/\s+/)
+                .filter(w => w.length >= 2 && !stopWords.has(w.toLowerCase()));
+            topics.push(...words);
         }
         if (msg.role === 'assistant') {
-            // Extract key topics the assistant discussed
+            // Extract key topics the assistant discussed (bold terms)
             const boldMatches = msg.content.match(/\*\*([^*]+)\*\*/g);
             if (boldMatches) {
                 topics.push(...boldMatches.map(m => m.replace(/\*\*/g, '')).slice(0, 3));
@@ -108,8 +127,17 @@ function extractConversationTopics(history: ConversationMessage[]): string[] {
         }
     }
 
-    // Deduplicate and return top topics
-    return [...new Set(topics)].slice(0, 5);
+    // Deduplicate (case-insensitive) and return top topics
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const t of topics) {
+        const key = t.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            unique.push(t);
+        }
+    }
+    return unique.slice(0, 8);
 }
 
 /**
@@ -242,8 +270,15 @@ Remember: You are having a conversation. Use context from previous messages to u
         }
     }
 
-    // Add current query
-    if (messages.length === 0 || messages[messages.length - 1].role === 'model') {
+    // Add current query — ensure it's always included.
+    // Gemini requires strictly alternating user/model turns. If the last
+    // message in history is already a user turn, merge the current query
+    // into it rather than silently dropping it.
+    if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
+        // Merge: append current query to the last user message
+        const lastUserText = messages[messages.length - 1].parts[0].text;
+        messages[messages.length - 1].parts[0].text = lastUserText + '\n\n' + currentQuery;
+    } else {
         messages.push({
             role: 'user',
             parts: [{ text: currentQuery }]
@@ -498,8 +533,8 @@ export function isConversationalQuery(query: string): boolean {
     const farewells = /^(bye|goodbye|see\s+you|thanks?|thank\s+you|thx|cheers|take\s+care|have\s+a\s+(good|nice|great))\b/i;
     // Meta questions about the assistant
     const metaQuestions = /^(who\s+are\s+you|what\s+(can\s+you\s+do|are\s+you)|how\s+do\s+you\s+work|help\s*$)/i;
-    // Acknowledgements
-    const acks = /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|sounds\s+good|alright)\s*[.!]?\s*$/i;
+    // Acknowledgements and affirmations
+    const acks = /^(ok|okay|got\s+it|understood|sure|cool|great|nice|awesome|perfect|sounds\s+good|alright|yes|yeah|yep|yup|no|nope|nah|please|go\s+ahead)\s*[.!]?\s*$/i;
 
     return greetings.test(lowered) || farewells.test(lowered) || metaQuestions.test(lowered) || acks.test(lowered);
 }
