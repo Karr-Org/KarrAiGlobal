@@ -488,13 +488,29 @@ export async function POST(request: NextRequest) {
 
         // ============================================
         // 2.6. STRICT MODE GUARD — refuse off-topic queries
-        // In strict mode (no extended, no web), if KB returned 0 chunks
-        // for a non-conversational query, refuse instead of letting the
-        // LLM answer from training data.
+        // Only triggers when truly 0 chunks from ALL sources (KB + crawled web).
+        // Instead of a hardcoded refusal, we let the LLM handle it naturally
+        // via the prompt rules. Only bypass the LLM entirely if the KB
+        // is totally empty AND the query is clearly non-conversational.
         // ============================================
         const isStrictMode = !enableExtendedKnowledge && !enableWebSearch;
         if (isStrictMode && !isConversational && kbWasEmpty) {
-            console.log('[UserChat] STRICT MODE: KB empty for non-conversational query — refusing');
+            console.log('[UserChat] STRICT MODE: KB empty for non-conversational query');
+
+            // If persona has a custom fallback, use it (creator knows best)
+            if (persona?.fallback_message) {
+                const refusalMessage = persona.fallback_message;
+                return NextResponse.json({
+                    answer: refusalMessage,
+                    response: refusalMessage,
+                    metadata: { task_detected: null, entity_detected: null },
+                    reasoning: { confidence: 1.0, kbWasEmpty: true },
+                    inline_citations: [],
+                    memorySuggestions: [],
+                });
+            }
+
+            // No persona fallback — build a natural refusal with topic hints
             const topicHint = kbTopicSummary
                 ? `My knowledge base covers **${kbTopicSummary}**.`
                 : kbTitles.length > 0
@@ -502,8 +518,8 @@ export async function POST(request: NextRequest) {
                     : '';
 
             const refusalMessage = topicHint
-                ? `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\n${topicHint}\n\nTry asking me something related to those topics — I'm here to help! You can also switch to **Extended mode** for broader answers or **Web Search** for current information.`
-                : `I can only answer questions from my knowledge base, and I couldn't find relevant information for your question.\n\nTry rephrasing or asking a different question. You can also enable **Extended mode** for broader answers or **Web Search** for current information.`;
+                ? `I wasn't able to find information about that in my documents.\n\n${topicHint}\n\nFeel free to ask me about those topics, or switch to **Extended mode** or **Web Search** for broader answers.`
+                : `I wasn't able to find information about that in my documents. Try rephrasing your question, or switch to **Extended mode** or **Web Search** for broader answers.`;
 
             return NextResponse.json({
                 answer: refusalMessage,
@@ -748,7 +764,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (persona.fallback_message) {
-                personaBlock += `\nWhen you cannot answer a question, respond with: "${persona.fallback_message}"\n`;
+                personaBlock += `\n## CUSTOM FALLBACK\nWhen you cannot answer a question from the provided context, respond with: "${persona.fallback_message}"\nThis overrides any other refusal instructions — ALWAYS use this fallback message instead of making up your own.\n`;
             }
 
             if (personaBlock) {
