@@ -221,7 +221,10 @@ export async function POST(request: NextRequest) {
 
         // Sanitize input against prompt injection
         const sanitizedQuery = sanitizeUserInput(query);
-        const isConversational = isConversationalQuery(sanitizedQuery);
+        // Only treat as conversational (skip KB retrieval) when there's no
+        // prior history. Mid-conversation acks like "yes"/"ok" should still
+        // trigger full retrieval using the rewritten query.
+        const isConversational = isConversationalQuery(sanitizedQuery) && conversationHistory.length <= 1;
 
         // Step 0: Rewrite query to resolve pronouns and references BEFORE retrieval
         // This is critical — "tell me more", "what about it?" etc. need to be
@@ -392,29 +395,27 @@ export async function POST(request: NextRequest) {
             // ============================================
             // 1. GLOBAL PRODUCT KNOWLEDGE
             // ============================================
-            console.log('[UserChat] Calling hybrid_search with:', {
+            console.log('[UserChat] Calling omniforge_hybrid_search with:', {
                 embedding_length: queryEmbedding.length,
-                query: query.substring(0, 50),
+                query: effectiveQuery.substring(0, 50),
                 p_product_id: productId,
-                p_user_id: productUser.user_id,
             });
 
-            const { data: globalChunks, error: globalError } = await supabase.rpc('hybrid_search', {
-                query_embedding: queryEmbedding,
-                query_text: effectiveQuery,
+            const { data: globalChunks, error: globalError } = await supabase.rpc('omniforge_hybrid_search', {
+                p_query_embedding: queryEmbedding,
+                p_query_text: effectiveQuery,
                 p_product_id: productId,
-                p_user_id: productUser.user_id,
-                match_count: 5,
+                p_match_count: 5,
             });
 
-            console.log('[UserChat] hybrid_search result:', {
+            console.log('[UserChat] omniforge_hybrid_search result:', {
                 chunks_found: globalChunks?.length || 0,
                 error: globalError,
                 first_chunk_preview: globalChunks?.[0]?.content?.substring(0, 100),
             });
 
             if (globalError) {
-                console.error('[UserChat] hybrid_search error:', globalError);
+                console.error('[UserChat] omniforge_hybrid_search error:', globalError);
             }
 
             if (globalChunks?.length > 0) {
@@ -422,7 +423,7 @@ export async function POST(request: NextRequest) {
                 globalChunks.forEach((chunk: any) => {
                     allChunks.push({
                         content: chunk.content,
-                        similarity: chunk.score || 0.5,  // hybrid_search returns 'score', not 'similarity'
+                        similarity: chunk.combined_score || chunk.vector_score || 0.5,
                         title: chunk.document_title || 'Knowledge Base',
                         type: 'global',
                     });
@@ -434,18 +435,19 @@ export async function POST(request: NextRequest) {
             // ============================================
             // 2. USER'S PRIVATE KNOWLEDGE BASE
             // ============================================
-            const { data: userChunks } = await supabase.rpc('match_user_knowledge_chunks', {
-                query_embedding: queryEmbedding,
+            const { data: userChunks } = await supabase.rpc('omniforge_user_hybrid_search', {
+                p_query_embedding: queryEmbedding,
+                p_query_text: effectiveQuery,
                 p_product_user_id: productUserId,
-                match_count: 3,
+                p_match_count: 3,
             });
 
             if (userChunks?.length > 0) {
                 userChunks.forEach((chunk: any) => {
                     allChunks.push({
                         content: chunk.content,
-                        similarity: chunk.similarity || 0.5,
-                        title: chunk.document_name || 'Your Document',
+                        similarity: chunk.combined_score || chunk.vector_score || 0.5,
+                        title: chunk.document_title || 'Your Document',
                         type: 'user',
                     });
                 });
@@ -636,8 +638,16 @@ export async function POST(request: NextRequest) {
         // ============================================
         // BUILD CONTEXT
         // ============================================
-        allChunks.sort((a, b) => b.similarity - a.similarity);
-        const topChunks = allChunks.slice(0, 8);
+        // Filter out low-relevance chunks before building context.
+        // This prevents noise from completely off-topic results polluting
+        // the LLM's context window and causing confused answers.
+        const MIN_SIMILARITY = 0.25;
+        const relevantChunks = allChunks.filter(c => c.similarity >= MIN_SIMILARITY);
+        if (relevantChunks.length < allChunks.length) {
+            console.log(`[UserChat] Filtered ${allChunks.length - relevantChunks.length} low-relevance chunks (below ${MIN_SIMILARITY} threshold)`);
+        }
+        relevantChunks.sort((a, b) => b.similarity - a.similarity);
+        const topChunks = relevantChunks.slice(0, 8);
 
         let context = '';
         if (topChunks.length > 0) {
