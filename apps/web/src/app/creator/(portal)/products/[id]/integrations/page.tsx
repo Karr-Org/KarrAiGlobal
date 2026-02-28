@@ -332,6 +332,7 @@ export default function IntegrationsPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    product_id: productId,
                     tool_id: form.id || undefined,
                     api_endpoint: form.api_endpoint,
                     http_method: form.http_method,

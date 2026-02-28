@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerSupabase } from '@/lib/supabase/server';
 import { decryptApiKey } from '@/lib/crypto';
 import {
     buildToolRequest,
@@ -26,6 +27,24 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+/**
+ * Verify the caller is authenticated and owns the product.
+ */
+async function verifyProductOwner(productId: string): Promise<string | null> {
+    const authClient = await createServerSupabase();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return null;
+
+    const { data: product } = await supabase
+        .from('products')
+        .select('created_by')
+        .eq('id', productId)
+        .single();
+
+    if (!product || product.created_by !== user.id) return null;
+    return user.id;
+}
 
 // SSRF protection (same as custom-tool-executor)
 const BLOCKED_HOSTS = [
@@ -59,6 +78,7 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const {
             // Draft tool config
+            product_id,        // Required — for auth ownership check
             tool_id,           // Optional — for fetching existing encrypted key
             api_endpoint,
             http_method,
@@ -72,6 +92,15 @@ export async function POST(req: NextRequest) {
             // Test parameters (what the user enters)
             test_params,       // e.g. { query: "GST" }
         } = body;
+
+        // Auth: verify caller owns the product
+        if (!product_id) {
+            return NextResponse.json({ error: 'product_id is required' }, { status: 400 });
+        }
+        const userId = await verifyProductOwner(product_id);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
 
         // Validate
         if (!api_endpoint) {
