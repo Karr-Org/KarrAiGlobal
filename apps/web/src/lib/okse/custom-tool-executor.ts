@@ -152,6 +152,16 @@ export async function validateEndpoint(endpoint: string): Promise<void> {
 // REQUEST BUILDER
 // ============================================================================
 
+// Headers that must not be set by creators (security-sensitive)
+const BLOCKED_HEADERS = new Set([
+    'host', 'cookie', 'set-cookie', 'authorization',
+    'proxy-authorization', 'proxy-connection',
+    'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+    'x-real-ip', 'forwarded',
+    'transfer-encoding', 'connection', 'upgrade',
+    'te', 'trailer',
+]);
+
 /**
  * Build the HTTP request (url, headers, body) from a tool config + LLM args.
  */
@@ -161,9 +171,19 @@ export function buildToolRequest(
     decryptedApiKey: string | null
 ): { url: string; headers: Record<string, string>; body: string | null } {
 
+    // Sanitize creator-provided custom headers
+    const customHeaders: Record<string, string> = {};
+    if (tool.request_config?.headers) {
+        for (const [key, value] of Object.entries(tool.request_config.headers)) {
+            if (!BLOCKED_HEADERS.has(key.toLowerCase())) {
+                customHeaders[key] = String(value);
+            }
+        }
+    }
+
     const headers: Record<string, string> = {
         'Accept': 'application/json',
-        ...(tool.request_config?.headers || {}),
+        ...customHeaders,
     };
 
     // Merge LLM args with static params
