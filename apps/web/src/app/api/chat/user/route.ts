@@ -734,7 +734,13 @@ export async function POST(request: NextRequest) {
             }
 
             if (persona.fallback_message) {
-                personaBlock += `\n## CUSTOM FALLBACK\nWhen you cannot answer a question from the provided context, respond with: "${persona.fallback_message}"\nThis overrides any other refusal instructions — ALWAYS use this fallback message instead of making up your own.\n`;
+                // Only inject the custom fallback in strict mode.
+                // In web/extended modes, telling the LLM to "respond with [fallback]
+                // when you can't answer from provided context" overrides the web search
+                // instructions and causes the LLM to refuse instead of searching.
+                if (isStrictMode) {
+                    personaBlock += `\n## CUSTOM FALLBACK\nWhen you cannot answer a question from the provided context, respond with: "${persona.fallback_message}"\nThis overrides any other refusal instructions — ALWAYS use this fallback message instead of making up your own.\n`;
+                }
             }
 
             if (personaBlock) {

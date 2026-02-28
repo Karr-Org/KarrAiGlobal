@@ -752,9 +752,14 @@ function ProductDashboardContent({ params }: { params: { slug: string } }) {
             }
 
             // CRITICAL: Send conversation history for context-aware responses
-            // Only send last 10 messages to stay within token limits
-            const historySource = overrideHistory || messages;
-            const conversationHistory = historySource.slice(-10).map(m => ({
+            // Only send last 10 messages to stay within token limits.
+            // Note: `messages` state may not include the current user message yet
+            // (React batches state updates), so we explicitly append it.
+            const historyBase = overrideHistory || messages;
+            const conversationHistory = [
+                ...historyBase,
+                { role: 'user' as const, content: userMessage },
+            ].slice(-10).map(m => ({
                 role: m.role,
                 content: m.content
             }));
