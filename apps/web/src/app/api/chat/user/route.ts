@@ -21,6 +21,7 @@ import {
     buildStrictModePrompt,
     buildExtendedModePrompt,
     buildWebModePrompt,
+    buildFullPowerModePrompt,
     STRICT_MODE_PROMPT,
     EXTENDED_MODE_PROMPT,
     IDENTITY_PROTECTION_BLOCK,
@@ -690,43 +691,47 @@ export async function POST(request: NextRequest) {
             // Continue without personalization
         }
 
-        // Step 3: Select system prompt based on mode
-        // Each mode gets a tailored prompt:
-        // - Strict: KB only, refuse off-topic
-        // - Extended: KB first, general knowledge allowed
-        // - Web: Pure web search, no KB mention at all
-        // - Full Power: KB + web + general knowledge
+        // ============================================
+        // STEP 3: BUILD SYSTEM PROMPT — STRUCTURED PRIORITY HIERARCHY
+        // ============================================
+        // The system prompt is assembled in clearly labeled priority
+        // sections so the LLM knows which rules take precedence.
+        // P1 = CORE (mode behavior) → P2 = PERSONA → P3 = CONTEXT AWARENESS → P4 = ADAPTATION
+        //
+        // Each mode prompt already includes the identity protection block
+        // (P0), so it doesn't need to be injected separately.
+        // ============================================
+
         const agentName = persona?.agent_name || null;
         const orgName = persona?.organization_name || null;
-        const useExtendedPrompt = enableExtendedKnowledge || enableWebSearch;
+        const isFullPower = enableExtendedKnowledge && enableWebSearch;
+
+        // ── P1: CORE MODE BEHAVIOR ──────────────────────────────
         const basePrompt = isWebOnly
             ? buildWebModePrompt(agentName, orgName)
-            : useExtendedPrompt
-                ? buildExtendedModePrompt(agentName, orgName)
-                : buildStrictModePrompt(agentName, orgName);
-        // Start with the user-selected mode prompt (strict/extended/web).
-        // If a task system prompt is detected, APPEND it — never replace the
-        // base mode prompt, which contains critical web search / KB instructions.
+            : isFullPower
+                ? buildFullPowerModePrompt(agentName, orgName)
+                : enableExtendedKnowledge
+                    ? buildExtendedModePrompt(agentName, orgName)
+                    : buildStrictModePrompt(agentName, orgName);
+
         let systemPrompt = basePrompt;
+
+        // Task-specific instructions (from structured tasks, if any)
         if (taskSystemPrompt) {
             systemPrompt += '\n\n## TASK-SPECIFIC INSTRUCTIONS\n' + taskSystemPrompt;
         }
 
-        const modeLabel = enableExtendedKnowledge && enableWebSearch ? 'FULL POWER'
+        const modeLabel = isFullPower ? 'FULL POWER'
             : enableWebSearch ? 'WEB SEARCH'
                 : enableExtendedKnowledge ? 'EXTENDED'
                     : 'STRICT';
-        console.log('[Mode]', modeLabel, `(extended prompt: ${useExtendedPrompt}, web search: ${enableWebSearch})`);
+        console.log('[Mode]', modeLabel);
 
-        // ============================================
-        // INJECT AGENT PERSONA BEHAVIOR INTO SYSTEM PROMPT
-        // Identity (name, org) is already inside the identity protection block.
-        // This section adds tone, instructions, guardrails, and fallback.
-        // ============================================
+        // ── P2: PERSONA (role, tone, guardrails) ────────────────
         if (persona) {
             let personaBlock = '';
 
-            // Add role context if specified (not identity — that's in the identity block)
             if (persona.agent_role) {
                 personaBlock += `\n\n## YOUR ROLE\nYour role is: ${persona.agent_role}.\n`;
             }
@@ -750,34 +755,32 @@ export async function POST(request: NextRequest) {
                 personaBlock += `\n## ⛔ BLOCKED TOPICS (STRICT):\nYou MUST NEVER discuss these topics under ANY circumstances: ${persona.blocked_topics.join(', ')}.\nIf a user asks about any of these, respond ONLY with: "I'm not able to discuss that topic. Is there something else I can help you with?"\nDo NOT provide partial answers, hints, or workarounds for blocked topics.\n`;
             }
 
-            if (persona.fallback_message) {
-                // Only inject the custom fallback in strict mode.
-                // In web/extended modes, telling the LLM to "respond with [fallback]
-                // when you can't answer from provided context" overrides the web search
-                // instructions and causes the LLM to refuse instead of searching.
-                if (isStrictMode) {
-                    personaBlock += `\n## RESPONSE GUIDELINES WHEN CONTEXT IS INSUFFICIENT\nIf your knowledge base context doesn't contain enough information to fully answer the user's question:\n1. First, share ANY partial information you DO have from the context that's relevant.\n2. Then, acknowledge what you couldn't find by naturally incorporating this tone: "${persona.fallback_message}"\n3. If you have related topics from the context, suggest them.\nNever use the fallback verbatim as your entire response — always try to add value first.\n`;
-                }
+            if (persona.fallback_message && isStrictMode) {
+                personaBlock += `\n## RESPONSE GUIDELINES WHEN CONTEXT IS INSUFFICIENT\nIf your knowledge base context doesn't contain enough information to fully answer the user's question:\n1. First, share ANY partial information you DO have from the context that's relevant.\n2. Then, acknowledge what you couldn't find by naturally incorporating this tone: "${persona.fallback_message}"\n3. If you have related topics from the context, suggest them.\nNever use the fallback verbatim as your entire response — always try to add value first.\n`;
             }
 
             if (personaBlock) {
                 systemPrompt += personaBlock;
-                console.log('[Persona] Injected persona behavior block (' + personaBlock.length + ' chars) | Identity: ' + (agentName || 'default') + ' @ ' + (orgName || 'Karr AI Global'));
+                console.log('[Persona] Injected persona behavior (' + personaBlock.length + ' chars)');
             }
         }
 
-        // Inject adaptive personalization into the system prompt
-        if (adaptivePrompt) {
-            systemPrompt += '\n\n' + adaptivePrompt;
+        // ── P3: CONTEXT AWARENESS ───────────────────────────────
+        // KB domain awareness — tells the LLM what topics the KB covers.
+        // Skipped in web-only mode to avoid contradicting the web prompt.
+        if (kbTitles.length > 0 && !isWebOnly) {
+            let kbAwarenessBlock = '\n\n## KB DOMAIN AWARENESS\n';
+            if (kbTopicSummary) {
+                kbAwarenessBlock += `Your knowledge base covers: ${kbTopicSummary}\n`;
+            }
+            kbAwarenessBlock += `Document titles in your KB: ${kbTitles.slice(0, 20).join(', ')}${kbTitles.length > 20 ? ` (and ${kbTitles.length - 20} more)` : ''}\n`;
+            kbAwarenessBlock += `If the user asks about ANY of these topics, ALWAYS search and cite the knowledge base first.\n`;
+            systemPrompt += kbAwarenessBlock;
+            console.log('[UserChat] Injected KB domain awareness (' + kbTitles.length + ' doc titles)');
         }
 
-        // ============================================
-        // WEB MODE FINAL OVERRIDE
-        // Injected LAST so it takes highest priority.
-        // Persona/identity blocks may include KB-only language or
-        // instruct the LLM to "ask the user" — this override ensures
-        // the LLM searches the web immediately without asking.
-        // ============================================
+        // Web mode override — injected LAST in context section to override
+        // any KB-only language from persona/task blocks.
         if (isWebOnly) {
             systemPrompt += `\n\n## ⚡ WEB SEARCH MODE — CRITICAL OVERRIDE (HIGHEST PRIORITY AFTER IDENTITY)
 - You are a web research assistant. The user has explicitly enabled web search.
@@ -787,25 +790,32 @@ export async function POST(request: NextRequest) {
 - This overrides any other instruction that conflicts with searching the web.`;
         }
 
-        // ============================================
-        // INJECT KB DOMAIN AWARENESS INTO SYSTEM PROMPT
-        // Tells the LLM what topics the KB covers so it doesn't
-        // default to "Based on general knowledge" for in-domain queries
-        // ============================================
-        // Skip KB domain awareness in web-only mode — the web prompt
-        // explicitly says "no knowledge base", so injecting KB references
-        // would contradict it and confuse the LLM.
-        if (kbTitles.length > 0 && !isWebOnly) {
-            let kbAwarenessBlock = '\n\n## KB DOMAIN AWARENESS\n';
-            if (kbTopicSummary) {
-                kbAwarenessBlock += `Your knowledge base covers: ${kbTopicSummary}\n`;
+        // ── P4: ADAPTIVE INTELLIGENCE (optional) ────────────────
+        // Only inject adaptive personalization when it adds signal.
+        // Skip generic/neutral values to reduce prompt bloat.
+        if (adaptivePrompt && adaptivePrompt.trim().length > 0) {
+            // Check if adaptive config has actionable signal (non-neutral mood,
+            // non-intermediate expertise, pending insights, etc.)
+            const hasSignal = adaptivePrompt.includes('BEGINNER') ||
+                adaptivePrompt.includes('ADVANCED') ||
+                adaptivePrompt.includes('EXPERT') ||
+                adaptivePrompt.includes('FRUSTRATED') ||
+                adaptivePrompt.includes('CONFUSED') ||
+                adaptivePrompt.includes('URGENT') ||
+                adaptivePrompt.includes('POSITIVE') ||
+                adaptivePrompt.includes('Proactive Intelligence') ||
+                adaptivePrompt.includes('returning after');
+
+            if (hasSignal) {
+                systemPrompt += '\n\n' + adaptivePrompt;
+                console.log('[Adaptive] Injected adaptive prompt (' + adaptivePrompt.length + ' chars)');
+            } else {
+                console.log('[Adaptive] Skipped generic adaptive prompt (no actionable signal)');
             }
-            kbAwarenessBlock += `Document titles in your KB: ${kbTitles.slice(0, 20).join(', ')}${kbTitles.length > 20 ? ` (and ${kbTitles.length - 20} more)` : ''}\n`;
-            kbAwarenessBlock += `If the user asks about ANY of these topics, ALWAYS search and cite the knowledge base first.\n`;
-            kbAwarenessBlock += `Do NOT prefix with "Based on general knowledge" if the topic matches your KB domain — treat it as a KB query.\n`;
-            systemPrompt += kbAwarenessBlock;
-            console.log('[UserChat] Injected KB domain awareness block (' + kbTitles.length + ' doc titles)');
         }
+
+        // ── CONFLICT RESOLUTION ─────────────────────────────────
+        systemPrompt += '\n\nWhen instructions conflict, follow this priority: Identity & Security > Core Mode Behavior > Persona > Context Awareness > Adaptive Intelligence.';
 
         // Step 4: Build multi-turn messages for native Gemini format
         // buildMultiTurnMessages returns { messages, systemInstruction } so the
