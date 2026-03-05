@@ -8,12 +8,48 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerSupabase } from '@/lib/supabase/server';
 import { encryptApiKey } from '@/lib/crypto';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// ============================================================================
+// AUTH HELPER
+// ============================================================================
+
+/**
+ * Verify the caller is authenticated and owns the product.
+ * Returns user.id on success, null on failure.
+ */
+async function verifyProductOwner(productId: string): Promise<string | null> {
+    const authClient = await createServerSupabase();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return null;
+
+    const { data: product } = await supabase
+        .from('products')
+        .select('created_by')
+        .eq('id', productId)
+        .single();
+
+    if (!product || product.created_by !== user.id) return null;
+    return user.id;
+}
+
+/**
+ * Resolve product_id from a tool_id.
+ */
+async function getProductIdFromTool(toolId: string): Promise<string | null> {
+    const { data } = await supabase
+        .from('product_api_tools')
+        .select('product_id')
+        .eq('id', toolId)
+        .single();
+    return data?.product_id || null;
+}
 
 /**
  * GET /api/creator/product-tools?product_id=xxx
@@ -24,6 +60,11 @@ export async function GET(req: NextRequest) {
         const productId = req.nextUrl.searchParams.get('product_id');
         if (!productId) {
             return NextResponse.json({ error: 'product_id is required' }, { status: 400 });
+        }
+
+        const userId = await verifyProductOwner(productId);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const { data, error } = await supabase
@@ -81,6 +122,11 @@ export async function POST(req: NextRequest) {
                 { error: 'product_id, tool_name, display_name, description, and api_endpoint are required' },
                 { status: 400 }
             );
+        }
+
+        const userId = await verifyProductOwner(product_id);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         // Validate tool_name format (safe function name for Gemini)
@@ -176,6 +222,16 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
         }
 
+        // Auth: resolve product_id from tool, then verify ownership
+        const productId = await getProductIdFromTool(toolId);
+        if (!productId) {
+            return NextResponse.json({ error: 'Tool not found' }, { status: 404 });
+        }
+        const userId = await verifyProductOwner(productId);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
         const { error } = await supabase
             .from('product_api_tools')
             .delete()
@@ -203,6 +259,16 @@ export async function PATCH(req: NextRequest) {
         const toolId = req.nextUrl.searchParams.get('id');
         if (!toolId) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
+        }
+
+        // Auth: resolve product_id from tool, then verify ownership
+        const productId = await getProductIdFromTool(toolId);
+        if (!productId) {
+            return NextResponse.json({ error: 'Tool not found' }, { status: 404 });
+        }
+        const userId = await verifyProductOwner(productId);
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const body = await req.json();

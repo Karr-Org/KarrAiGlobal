@@ -7,6 +7,7 @@
  */
 
 import { decryptApiKey } from '@/lib/crypto';
+import { lookup } from 'dns/promises';
 
 // ============================================================================
 // TYPES
@@ -60,43 +61,106 @@ export interface ToolResult {
 }
 
 // ============================================================================
-// SSRF PROTECTION
+// SSRF / ENDPOINT VALIDATION
 // ============================================================================
 
-/** Block requests to internal/private networks */
-const BLOCKED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    '::1',
-    'metadata.google.internal',
-    '169.254.169.254',
-];
+/**
+ * Check if an IP address falls within a private/reserved range.
+ * Covers: loopback, RFC 1918, link-local, broadcast, and IPv6 mapped.
+ */
+function isPrivateIP(ip: string): boolean {
+    // Handle IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
+    if (ip.startsWith('::ffff:')) {
+        return isPrivateIP(ip.slice(7));
+    }
 
-const BLOCKED_PREFIXES = [
-    '10.',
-    '172.16.', '172.17.', '172.18.', '172.19.',
-    '172.20.', '172.21.', '172.22.', '172.23.',
-    '172.24.', '172.25.', '172.26.', '172.27.',
-    '172.28.', '172.29.', '172.30.', '172.31.',
-    '192.168.',
-];
+    // IPv6 loopback and link-local
+    if (ip === '::1' || ip.startsWith('fe80:') || ip.startsWith('fc00:') || ip.startsWith('fd00:')) {
+        return true;
+    }
 
-function isBlockedUrl(endpoint: string): boolean {
+    // IPv4 checks
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p))) return false;
+
+    const [a, b] = parts;
+    if (a === 0) return true;                                     // 0.0.0.0/8
+    if (a === 10) return true;                                    // 10.0.0.0/8
+    if (a === 127) return true;                                   // 127.0.0.0/8
+    if (a === 169 && b === 254) return true;                       // 169.254.0.0/16 (link-local + cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;              // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;                       // 192.168.0.0/16
+    if (a === 255 && b === 255) return true;                       // broadcast
+
+    return false;
+}
+
+/**
+ * Validate an endpoint URL for safety.
+ * Resolves DNS and checks the resulting IP address.
+ * Throws on invalid/blocked endpoints.
+ */
+export async function validateEndpoint(endpoint: string): Promise<void> {
+    let url: URL;
     try {
-        const url = new URL(endpoint);
-        const hostname = url.hostname.toLowerCase();
-        if (BLOCKED_HOSTS.includes(hostname)) return true;
-        if (BLOCKED_PREFIXES.some(p => hostname.startsWith(p))) return true;
-        return false;
+        url = new URL(endpoint);
     } catch {
-        return true; // Invalid URL = blocked
+        throw new Error('Invalid endpoint URL');
+    }
+
+    // Only allow http/https
+    if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Only HTTP/HTTPS protocols are allowed');
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    // Quick-reject known bad hostnames
+    if (['localhost', 'metadata.google.internal'].includes(hostname)) {
+        throw new Error(`Blocked endpoint: ${hostname}`);
+    }
+
+    // Resolve DNS to IP and check against private ranges
+    try {
+        // If it's already an IP literal, check directly
+        const ipParts = hostname.split('.');
+        const isIpLiteral = ipParts.length === 4 && ipParts.every(p => !isNaN(Number(p)));
+
+        if (isIpLiteral) {
+            if (isPrivateIP(hostname)) {
+                throw new Error(`Blocked: ${hostname} resolves to a private IP`);
+            }
+        } else {
+            // Resolve hostname via DNS
+            const result = await lookup(hostname);
+            if (isPrivateIP(result.address)) {
+                throw new Error(`Blocked: ${hostname} resolves to private IP ${result.address}`);
+            }
+        }
+    } catch (err: any) {
+        // If DNS resolution itself failed, block the request
+        if (err.code === 'ENOTFOUND') {
+            throw new Error(`DNS resolution failed for ${hostname}`);
+        }
+        // Re-throw our own validation errors
+        if (err.message?.startsWith('Blocked')) throw err;
+        throw new Error(`Endpoint validation failed: ${err.message}`);
     }
 }
 
 // ============================================================================
 // REQUEST BUILDER
 // ============================================================================
+
+// Headers that must not be set by creators (security-sensitive)
+const BLOCKED_HEADERS = new Set([
+    'host', 'cookie', 'set-cookie', 'authorization',
+    'proxy-authorization', 'proxy-connection',
+    'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+    'x-real-ip', 'forwarded',
+    'transfer-encoding', 'connection', 'upgrade',
+    'te', 'trailer',
+]);
 
 /**
  * Build the HTTP request (url, headers, body) from a tool config + LLM args.
@@ -107,9 +171,19 @@ export function buildToolRequest(
     decryptedApiKey: string | null
 ): { url: string; headers: Record<string, string>; body: string | null } {
 
+    // Sanitize creator-provided custom headers
+    const customHeaders: Record<string, string> = {};
+    if (tool.request_config?.headers) {
+        for (const [key, value] of Object.entries(tool.request_config.headers)) {
+            if (!BLOCKED_HEADERS.has(key.toLowerCase())) {
+                customHeaders[key] = String(value);
+            }
+        }
+    }
+
     const headers: Record<string, string> = {
         'Accept': 'application/json',
-        ...(tool.request_config?.headers || {}),
+        ...customHeaders,
     };
 
     // Merge LLM args with static params
@@ -248,6 +322,48 @@ const MAX_RESPONSE_SIZE = 50 * 1024;
 export const MAX_CUSTOM_TOOL_CALLS = 3;
 
 /**
+ * Read a response body with a byte limit using streaming.
+ * Aborts the connection as soon as the limit is exceeded,
+ * preventing the entire payload from being buffered in memory.
+ */
+export async function readResponseWithLimit(
+    response: Response,
+    maxBytes: number
+): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        // Fallback for environments without streaming — safe-ish with small limit
+        const text = await response.text();
+        return text.substring(0, maxBytes);
+    }
+
+    const decoder = new TextDecoder();
+    let result = '';
+    let totalBytes = 0;
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            totalBytes += value.byteLength;
+            if (totalBytes > maxBytes) {
+                // Take only the bytes we need from this chunk
+                const overshoot = totalBytes - maxBytes;
+                const usable = value.slice(0, value.byteLength - overshoot);
+                result += decoder.decode(usable, { stream: false });
+                break;
+            }
+            result += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        reader.cancel().catch(() => { });
+    }
+
+    return result;
+}
+
+/**
  * Execute a custom API tool call end-to-end:
  * 1. Validate endpoint (SSRF protection)
  * 2. Decrypt the API key
@@ -260,10 +376,8 @@ export async function executeCustomTool(
     llmArgs: Record<string, unknown>
 ): Promise<{ results: ToolResult[]; rawData: unknown }> {
 
-    // SSRF protection
-    if (isBlockedUrl(tool.api_endpoint)) {
-        throw new Error(`Blocked endpoint: ${tool.api_endpoint} is not an allowed URL`);
-    }
+    // SSRF protection — resolve DNS and validate IP
+    await validateEndpoint(tool.api_endpoint);
 
     console.log(`[CustomTool] Executing "${tool.tool_name}" → ${tool.http_method} ${tool.api_endpoint}`);
     console.log(`[CustomTool] LLM args:`, JSON.stringify(llmArgs));
@@ -293,15 +407,14 @@ export async function executeCustomTool(
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            const errText = await response.text().catch(() => '');
+            const errText = await readResponseWithLimit(response, 2048);
             console.error(`[CustomTool] API error ${response.status}:`, errText.substring(0, 500));
             throw new Error(`API returned ${response.status}: ${errText.substring(0, 200)}`);
         }
 
-        // Read response with size limit
-        const text = await response.text();
-        const truncated = text.substring(0, MAX_RESPONSE_SIZE);
-        const rawData = JSON.parse(truncated);
+        // Read response with stream-based size limit (prevents OOM)
+        const text = await readResponseWithLimit(response, MAX_RESPONSE_SIZE);
+        const rawData = JSON.parse(text);
 
         // Extract structured results
         const results = extractToolResults(rawData, tool.response_config);
