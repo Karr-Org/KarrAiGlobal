@@ -11,6 +11,14 @@ const supabase = createClient(
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
 const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
 
+// Chat generation via Replicate. The platform's direct GOOGLE_AI_API_KEY is on a
+// zero-quota tier (Google-direct fails), so generation goes through Replicate —
+// which carries working Google access + billing, same as the compliance-draft
+// drafter. Cheap model by default; override with CHAT_MODEL.
+const REPLICATE_BASE = 'https://api.replicate.com/v1';
+const CHAT_MODEL = process.env.CHAT_MODEL || 'google/gemini-2.5-flash';
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || '';
+
 // ============================================
 // CORS headers for cross-origin widget access
 // ============================================
@@ -74,36 +82,60 @@ async function getEmbedding(text: string): Promise<number[]> {
     }
 }
 
+/** Flatten Gemini-style multi-turn messages into a single prompt for Replicate
+ *  (the system prompt is already baked into the first user turn upstream). */
+function flattenMessages(messages: { role: string; parts: { text: string }[] }[]): string {
+    return messages
+        .map((m) => {
+            const text = (m.parts || []).map((p) => p?.text || '').join('');
+            return `${m.role === 'model' ? 'Assistant' : 'User'}: ${text}`;
+        })
+        .join('\n\n') + '\n\nAssistant:';
+}
+
 async function generateContent(
     messages: { role: string; parts: { text: string }[] }[]
 ): Promise<string> {
+    if (!REPLICATE_API_TOKEN) {
+        console.error('[WidgetChat] REPLICATE_API_TOKEN is not set');
+        return 'The assistant is not configured yet. Please try again later.';
+    }
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: messages,
-                    generationConfig: {
-                        temperature: 0.7,
-                        topP: 0.9,
-                        topK: 40,
-                        maxOutputTokens: 2048,
-                    },
-                }),
-            }
-        );
+        const prompt = flattenMessages(messages);
+        let pred: { status?: string; output?: unknown; error?: string | null; detail?: string; urls?: { get?: string } };
 
-        const responseText = await response.text();
-        if (!response.ok) return 'I apologize, but I encountered an error. Please try again.';
-
-        const data = JSON.parse(responseText);
-        if (data.candidates?.[0]?.finishReason === 'SAFETY') {
-            return 'I cannot respond to this query due to safety guidelines.';
+        const upstream = await fetch(`${REPLICATE_BASE}/models/${CHAT_MODEL}/predictions`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${REPLICATE_API_TOKEN}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'wait',
+            },
+            body: JSON.stringify({ input: { prompt, max_output_tokens: 2048, temperature: 0.7 } }),
+        });
+        pred = await upstream.json();
+        if (!upstream.ok) {
+            console.error('[WidgetChat] Replicate error:', pred?.detail || pred?.error);
+            return 'I apologize, but I encountered an error. Please try again.';
         }
 
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Could not generate a response.';
+        // 'Prefer: wait' usually returns a finished prediction; poll briefly if not.
+        let polls = 0;
+        while ((pred.status === 'starting' || pred.status === 'processing') && pred.urls?.get && polls < 20) {
+            await new Promise((r) => setTimeout(r, 1000));
+            polls++;
+            pred = await (await fetch(pred.urls.get, { headers: { 'Authorization': `Bearer ${REPLICATE_API_TOKEN}` } })).json();
+        }
+        if (pred.status !== 'succeeded') {
+            console.error('[WidgetChat] Replicate did not complete:', pred.error || pred.status);
+            return 'I apologize, but I encountered an error. Please try again.';
+        }
+
+        const out = pred.output;
+        const text = typeof out === 'string'
+            ? out
+            : Array.isArray(out) ? out.map((p) => (typeof p === 'string' ? p : '')).join('') : '';
+        return text.trim() || 'Could not generate a response.';
     } catch (error: any) {
         console.error('[WidgetChat] Generation error:', error.message);
         return 'I encountered an error. Please try again.';
