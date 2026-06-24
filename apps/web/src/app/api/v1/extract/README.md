@@ -11,13 +11,18 @@ It is **stateless** (no DB writes besides a fire-and-forget usage stamp) and
 amendment inbox and a human promotes it in Rule Studio. This endpoint never
 publishes anything.
 
-## Auth
+## Auth & security model
 
-Same as `/api/v1/chat`: `Authorization: Bearer pk_live_…`. The key must carry the
-**`extract`** permission (a key with no `permissions` set is treated as
-full/unscoped; a scoped key must list `"extract"` or `"*"`). Unlike the public
-widget chat, this endpoint does **not** emit a wildcard CORS origin — a leaked key
-cannot be replayed from an arbitrary browser.
+Same as `/api/v1/chat`: `Authorization: Bearer pk_live_…`. The key MUST explicitly
+carry the **`extract`** permission — `"extract"` or `"*"` in
+`product_api_keys.permissions`. This endpoint fails **closed**: a key with no/empty
+permissions is denied (an expensive Opus endpoint must never be reachable by a
+legacy unscoped key by accident).
+
+The real security boundary is the **`extract` permission gate + the per-key rate
+limit + key revocation**. CORS is *not* a boundary — it only stops a leaked key
+being replayed from a **browser** (no wildcard origin is emitted); a key leaked
+into a **server** context bypasses CORS entirely, so rotate/revoke a leaked key.
 
 ## Env
 

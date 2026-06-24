@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
 
         const { data: keyRecord, error: keyError } = await supabase
             .from('product_api_keys')
-            .select('id, product_id, is_active, rate_limit_per_minute, allowed_origins, permissions, request_count')
+            .select('id, product_id, is_active, rate_limit_per_minute, allowed_origins, permissions')
             .eq('key_hash', keyHash)
             .single();
 
@@ -134,11 +134,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ ok: false, error: 'API key has been revoked' }, { status: 403, headers: BASE_HEADERS });
         }
 
-        // Privileged: extraction must be explicitly granted. A key with no
-        // permissions set (null/empty) is treated as a full/unscoped key; a
-        // scoped key must list 'extract' (or '*').
+        // Privileged: extraction must be EXPLICITLY granted — the key must list
+        // 'extract' (or '*') in permissions. Fail CLOSED: a key with empty/absent
+        // permissions is denied, so an expensive Opus endpoint is never reachable
+        // by a legacy unscoped key by accident.
         const perms: string[] = Array.isArray(keyRecord.permissions) ? keyRecord.permissions : [];
-        const permitted = perms.length === 0 || perms.includes('extract') || perms.includes('*');
+        const permitted = perms.includes('extract') || perms.includes('*');
         if (!permitted) {
             return NextResponse.json(
                 { ok: false, error: "API key lacks the 'extract' permission" },
@@ -148,7 +149,10 @@ export async function POST(request: NextRequest) {
 
         // ── 1b. Rate limit (per key, 60s sliding window). FAILS OPEN if the
         //        extract_usage table isn't migrated yet (see 20260624 migration),
-        //        so deploying the route before the migration is harmless.
+        //        so deploying the route before the migration is harmless. The
+        //        check-then-insert is best-effort: a burst of truly-concurrent
+        //        requests may slip a small margin over the limit — acceptable for
+        //        this low-frequency, permission-gated endpoint.
         const rateLimit = (keyRecord.rate_limit_per_minute as number) || 30;
         const since = new Date(Date.now() - 60_000).toISOString();
         const { count: recent, error: rlErr } = await supabase
@@ -189,13 +193,14 @@ export async function POST(request: NextRequest) {
         const hints = (body.hints && typeof body.hints === 'object') ? body.hints as Record<string, unknown> : undefined;
         const model = (typeof body.model === 'string' && ALLOWED_MODELS.has(body.model)) ? body.model : DEFAULT_MODEL;
 
-        // Best-effort usage counter on the key (fire-and-forget). The actual
-        // per-minute throttle is the extract_usage sliding window in step 1b above.
+        // Best-effort last-used stamp (fire-and-forget). We deliberately do NOT
+        // increment request_count here — the extract_usage rows (step 1b) are the
+        // authoritative per-key counter and avoid a read-modify-write race.
         void supabase
             .from('product_api_keys')
-            .update({ last_used_at: new Date().toISOString(), request_count: (keyRecord.request_count as number ?? 0) + 1 })
+            .update({ last_used_at: new Date().toISOString() })
             .eq('id', keyRecord.id)
-            .then(undefined, (e) => console.warn('[extract] usage stamp failed:', e?.message));
+            .then(undefined, (e) => console.warn('[extract] last-used stamp failed:', e?.message));
 
         // ── 3. Draft with Claude ────────────────────────────────────────────
         let llm: { text: string; usage: unknown; stopReason: string | null };
@@ -203,9 +208,9 @@ export async function POST(request: NextRequest) {
             llm = await callClaude(EXTRACT_SYSTEM_PROMPT, buildExtractUser(lawText, country, hints), model);
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            console.error('[extract] LLM error:', msg);
+            console.error('[extract] LLM error:', msg); // detail stays server-side
             return NextResponse.json(
-                { ok: false, error: `Extraction model failed: ${msg}` },
+                { ok: false, error: 'Extraction model call failed. Please retry.' },
                 { status: 502, headers: BASE_HEADERS }
             );
         }
@@ -217,7 +222,7 @@ export async function POST(request: NextRequest) {
                 {
                     ok: false, error: parsed.error,
                     truncated: llm.stopReason === 'max_tokens', // output cut off → JSON invalid
-                    raw_excerpt: llm.text.slice(0, 600), model, usage: llm.usage,
+                    raw_excerpt: llm.text.slice(0, 150), model, usage: llm.usage,
                 },
                 { status: 422, headers: BASE_HEADERS }
             );
